@@ -9,40 +9,147 @@ from datetime import datetime, time
 from zoneinfo import ZoneInfo
 from urllib.parse import quote
 from sklearn.ensemble import RandomForestRegressor
+import warnings
+
+warnings.filterwarnings("ignore")
 
 
-# =========================================================
-# PAGE CONFIG
-# =========================================================
+# ============================================================
+# PAGE
+# ============================================================
 
 st.set_page_config(
     page_title="Indian Stock AI Analyzer",
     page_icon="📈",
     layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 
-# =========================================================
+# ============================================================
+# SIMPLE DARK UI
+# ============================================================
+
+st.markdown(
+    """
+    <style>
+
+    .stApp {
+        background: #0b1120;
+        color: #f8fafc;
+    }
+
+    .block-container {
+        max-width: 1400px;
+        padding-top: 1.5rem;
+        padding-bottom: 3rem;
+    }
+
+    h1, h2, h3 {
+        color: #f8fafc;
+    }
+
+    .subtitle {
+        color: #94a3b8;
+        margin-bottom: 20px;
+    }
+
+    .stock-box {
+        background: #111827;
+        border: 1px solid #263449;
+        border-radius: 14px;
+        padding: 22px;
+        margin-bottom: 18px;
+    }
+
+    .stock-name {
+        font-size: 30px;
+        font-weight: 800;
+    }
+
+    .stock-symbol {
+        color: #94a3b8;
+        font-size: 13px;
+    }
+
+    .price {
+        font-size: 40px;
+        font-weight: 800;
+        margin-top: 15px;
+    }
+
+    .positive {
+        color: #22c55e;
+        font-weight: 700;
+    }
+
+    .negative {
+        color: #ef4444;
+        font-weight: 700;
+    }
+
+    .neutral {
+        color: #f59e0b;
+        font-weight: 700;
+    }
+
+    .section {
+        font-size: 21px;
+        font-weight: 800;
+        margin-top: 28px;
+        margin-bottom: 14px;
+    }
+
+    .reason {
+        background: #111827;
+        border: 1px solid #263449;
+        border-radius: 12px;
+        padding: 15px;
+        color: #cbd5e1;
+        line-height: 1.6;
+    }
+
+    .news {
+        background: #111827;
+        border: 1px solid #263449;
+        border-radius: 10px;
+        padding: 12px;
+        margin-bottom: 8px;
+    }
+
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# ============================================================
 # CONSTANTS
-# =========================================================
+# ============================================================
 
 IST = ZoneInfo("Asia/Kolkata")
 
 MARKET_OPEN = time(9, 15)
 MARKET_CLOSE = time(15, 30)
 
+
+# ============================================================
+# STOCK LISTS
+# ============================================================
+
 NIFTY_10 = {
     "RELIANCE": "RELIANCE.NS",
-    "HDFCBANK": "HDFCBANK.NS",
-    "ICICIBANK": "ICICIBANK.NS",
-    "INFY": "INFY.NS",
     "TCS": "TCS.NS",
-    "ITC": "ITC.NS",
-    "LT": "LT.NS",
+    "HDFCBANK": "HDFCBANK.NS",
+    "INFY": "INFY.NS",
+    "ICICIBANK": "ICICIBANK.NS",
     "BHARTIARTL": "BHARTIARTL.NS",
+    "ITC": "ITC.NS",
     "SBIN": "SBIN.NS",
+    "LT": "LT.NS",
     "AXISBANK": "AXISBANK.NS",
 }
+
 
 NIFTY_50 = {
     "ADANIENT": "ADANIENT.NS",
@@ -97,523 +204,558 @@ NIFTY_50 = {
     "TITAN": "TITAN.NS",
     "TRENT": "TRENT.NS",
     "ULTRACEMCO": "ULTRACEMCO.NS",
-    "WIPRO": "WIPRO.NS",
 }
 
 
-# =========================================================
-# CSS
-# =========================================================
-
-st.markdown(
-    """
-    <style>
-
-    .stApp {
-        background-color: #f8fafc;
-    }
-
-    .main-title {
-        font-size: 34px;
-        font-weight: 800;
-        color: #0f172a;
-        margin-bottom: 4px;
-    }
-
-    .subtitle {
-        color: #64748b;
-        font-size: 14px;
-        margin-bottom: 20px;
-    }
-
-    .stock-name {
-        font-size: 28px;
-        font-weight: 800;
-        color: #0f172a;
-    }
-
-    .stock-symbol {
-        font-size: 13px;
-        color: #64748b;
-        margin-bottom: 15px;
-    }
-
-    .cmp-label {
-        font-size: 12px;
-        color: #64748b;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-
-    .cmp-price {
-        font-size: 36px;
-        font-weight: 800;
-        color: #0f172a;
-    }
-
-    .positive {
-        color: #16a34a;
-        font-weight: 700;
-    }
-
-    .negative {
-        color: #dc2626;
-        font-weight: 700;
-    }
-
-    .neutral {
-        color: #64748b;
-        font-weight: 700;
-    }
-
-    .status-pill {
-        display: inline-block;
-        padding: 5px 10px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: 700;
-    }
-
-    .status-open {
-        background: #dcfce7;
-        color: #166534;
-    }
-
-    .status-closed {
-        background: #f1f5f9;
-        color: #475569;
-    }
-
-    .prediction-card {
-        background: white;
-        border-radius: 14px;
-        padding: 18px;
-        border: 1px solid #e2e8f0;
-        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
-    }
-
-    .prediction-title {
-        font-size: 13px;
-        color: #64748b;
-        font-weight: 600;
-    }
-
-    .prediction-price {
-        font-size: 26px;
-        font-weight: 800;
-        color: #0f172a;
-        margin-top: 5px;
-    }
-
-    .prediction-change {
-        font-size: 14px;
-        font-weight: 700;
-        margin-top: 5px;
-    }
-
-    .section-title {
-        font-size: 20px;
-        font-weight: 800;
-        color: #0f172a;
-        margin-top: 25px;
-        margin-bottom: 12px;
-    }
-
-    .reason-box {
-        background: white;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 15px;
-        margin-bottom: 10px;
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-# =========================================================
+# ============================================================
 # HELPERS
-# =========================================================
+# ============================================================
 
 def safe_float(value, default=0.0):
-    try:
-        if value is None:
-            return default
 
+    try:
         value = float(value)
 
-        if np.isnan(value) or np.isinf(value):
-            return default
+        if np.isfinite(value):
+            return value
 
-        return value
+        return default
 
     except Exception:
         return default
 
 
 def money(value):
-    value = safe_float(value)
-
-    if value == 0:
-        return "₹0.00"
-
-    return f"₹{value:,.2f}"
+    return f"₹{safe_float(value):,.2f}"
 
 
 def india_now():
     return datetime.now(IST)
 
 
-def business_day_date():
+# ============================================================
+# MARKET STATUS
+# ============================================================
+
+def market_status():
+
     now = india_now()
 
     if now.weekday() >= 5:
-        return now.date()
-
-    return now.date()
-
-
-# =========================================================
-# FIXED MARKET STATUS
-# =========================================================
-
-def market_status_from_time(timestamp=None):
-    """
-    Determine NSE market status using India Standard Time.
-
-    NSE regular trading session:
-        Monday-Friday
-        09:15 AM - 03:30 PM IST
-    """
-
-    now = india_now() if timestamp is None else timestamp
-
-    if now.tzinfo is None:
-        now = now.replace(tzinfo=IST)
-
-    now = now.astimezone(IST)
-
-    # Weekend
-    if now.weekday() >= 5:
         return "Market Closed", "Weekend"
 
-    # Before market opens
     if now.time() < MARKET_OPEN:
         return "Market Closed", "Pre-market"
 
-    # Regular market session
     if now.time() < MARKET_CLOSE:
         return "Market Open", "Live market"
 
-    # After market closes
     return "Market Closed", "After market"
 
 
-def signal_class(signal):
-    if signal in ["BUY", "STRONG BUY"]:
-        return "positive"
+# ============================================================
+# LIVE PRICE
+# ============================================================
 
-    if signal in ["SELL", "STRONG SELL"]:
-        return "negative"
-
-    return "neutral"
-
-
-# =========================================================
-# LIVE QUOTE
-# =========================================================
-
-@st.cache_data(ttl=30)
-def fetch_live_quote(ticker):
-
-    url = (
-        f"https://query1.finance.yahoo.com/v8/finance/chart/"
-        f"{ticker}?interval=1m&range=1d"
-    )
+@st.cache_data(ttl=30, show_spinner=False)
+def get_live_price(ticker):
 
     try:
 
+        url = (
+            f"https://query1.finance.yahoo.com/v8/finance/chart/"
+            f"{quote(ticker)}"
+        )
+
+        params = {
+            "interval": "1m",
+            "range": "1d",
+            "includePrePost": "false",
+        }
+
         response = requests.get(
             url,
+            params=params,
             timeout=10,
             headers={
                 "User-Agent": "Mozilla/5.0"
-            },
+            }
         )
 
         response.raise_for_status()
 
-        data = response.json()
-
-        result = data["chart"]["result"][0]
+        result = response.json()["chart"]["result"][0]
 
         meta = result.get("meta", {})
 
         price = safe_float(
-            meta.get("regularMarketPrice")
+            meta.get("regularMarketPrice"),
+            np.nan
         )
 
         previous_close = safe_float(
-            meta.get("previousClose")
+            meta.get("previousClose"),
+            np.nan
         )
 
-        regular_market_time = meta.get(
+        timestamp = meta.get(
             "regularMarketTime"
         )
 
-        # Fallback to latest 1-minute candle
-        if price == 0:
+        quote_time = None
+
+        if timestamp:
+
+            quote_time = datetime.fromtimestamp(
+                int(timestamp),
+                tz=IST
+            )
+
+        # Fallback
+        if not np.isfinite(price):
 
             timestamps = result.get(
                 "timestamp",
                 []
             )
 
-            indicators = (
+            quotes = (
                 result
                 .get("indicators", {})
                 .get("quote", [])
             )
 
-            if timestamps and indicators:
+            closes = (
+                quotes[0].get("close", [])
+                if quotes
+                else []
+            )
 
-                closes = indicators[0].get(
-                    "close",
-                    []
+            for ts, close in reversed(
+                list(zip(timestamps, closes))
+            ):
+
+                value = safe_float(
+                    close,
+                    np.nan
                 )
 
-                for close in reversed(closes):
+                if np.isfinite(value):
 
-                    if close is not None:
+                    price = value
 
-                        price = safe_float(
-                            close
+                    quote_time = (
+                        datetime.fromtimestamp(
+                            int(ts),
+                            tz=IST
                         )
+                    )
 
-                        break
+                    break
 
-        if price == 0:
-            raise ValueError(
-                "Unable to retrieve live price."
-            )
+        if not np.isfinite(price):
+            return None
 
-        if previous_close == 0:
+        if not np.isfinite(previous_close):
             previous_close = price
 
-        change_pct = (
-            ((price - previous_close)
-             / previous_close) * 100
-            if previous_close
-            else 0
+        change = (
+            (price / previous_close - 1)
+            * 100
         )
-
-        quote_time = None
-
-        if regular_market_time:
-
-            quote_time = datetime.fromtimestamp(
-                regular_market_time,
-                tz=IST
-            )
 
         return {
             "price": price,
             "previous_close": previous_close,
-            "change_pct": change_pct,
+            "change": change,
             "quote_time": quote_time,
-            "source": "Yahoo Finance",
         }
 
-    except Exception as e:
+    except Exception:
 
-        return {
-            "price": 0,
-            "previous_close": 0,
-            "change_pct": 0,
-            "quote_time": None,
-            "source": f"Error: {e}",
-        }
+        return None
 
 
-# =========================================================
+# ============================================================
 # HISTORICAL DATA
-# =========================================================
+# ============================================================
 
-@st.cache_data(ttl=900)
-def download_data(ticker):
+@st.cache_data(ttl=300, show_spinner=False)
+def get_data(ticker):
 
-    df = yf.download(
-        ticker,
-        period="2y",
-        interval="1d",
-        auto_adjust=True,
-        progress=False,
-    )
+    try:
 
-    if df.empty:
-        return pd.DataFrame()
+        df = yf.download(
+            ticker,
+            period="2y",
+            interval="1d",
+            auto_adjust=True,
+            progress=False
+        )
 
-    # Handle yfinance MultiIndex columns
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-
-    df = df.copy()
-
-    required = [
-        "Open",
-        "High",
-        "Low",
-        "Close",
-        "Volume",
-    ]
-
-    for col in required:
-
-        if col not in df.columns:
+        if df.empty:
             return pd.DataFrame()
 
-    df = df[required].dropna()
+        if isinstance(
+            df.columns,
+            pd.MultiIndex
+        ):
+            df.columns = (
+                df.columns
+                .get_level_values(0)
+            )
 
-    return df
+        df.columns = [
+            str(c).title()
+            for c in df.columns
+        ]
+
+        required = [
+            "Open",
+            "High",
+            "Low",
+            "Close",
+            "Volume",
+        ]
+
+        if not all(
+            x in df.columns
+            for x in required
+        ):
+            return pd.DataFrame()
+
+        return df[required].dropna()
+
+    except Exception:
+
+        return pd.DataFrame()
 
 
-# =========================================================
-# TECHNICAL INDICATORS
-# =========================================================
+# ============================================================
+# INDICATORS
+# ============================================================
 
 def add_indicators(df):
 
-    df = df.copy()
+    data = df.copy()
 
-    # Moving averages
-    df["SMA20"] = (
-        df["Close"]
-        .rolling(20)
-        .mean()
+    close = data["Close"]
+    high = data["High"]
+    low = data["Low"]
+    volume = data["Volume"]
+
+    data["SMA20"] = (
+        close.rolling(20).mean()
     )
 
-    df["SMA50"] = (
-        df["Close"]
-        .rolling(50)
-        .mean()
+    data["SMA50"] = (
+        close.rolling(50).mean()
     )
 
-    df["SMA200"] = (
-        df["Close"]
-        .rolling(200)
-        .mean()
+    data["SMA200"] = (
+        close.rolling(200).mean()
     )
 
-    # MACD
     ema12 = (
-        df["Close"]
+        close
         .ewm(span=12, adjust=False)
         .mean()
     )
 
     ema26 = (
-        df["Close"]
+        close
         .ewm(span=26, adjust=False)
         .mean()
     )
 
-    df["MACD"] = ema12 - ema26
+    data["MACD"] = (
+        ema12 - ema26
+    )
 
-    df["MACD_SIGNAL"] = (
-        df["MACD"]
+    data["MACD_SIGNAL"] = (
+        data["MACD"]
         .ewm(span=9, adjust=False)
         .mean()
     )
 
     # RSI
-    delta = df["Close"].diff()
+    delta = close.diff()
 
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
+    gain = delta.clip(
+        lower=0
+    )
+
+    loss = -delta.clip(
+        upper=0
+    )
 
     avg_gain = (
-        gain
-        .rolling(14)
-        .mean()
+        gain.rolling(14).mean()
     )
 
     avg_loss = (
-        loss
-        .rolling(14)
-        .mean()
+        loss.rolling(14).mean()
     )
 
-    rs = avg_gain / avg_loss.replace(0, np.nan)
+    rs = (
+        avg_gain
+        / avg_loss.replace(0, np.nan)
+    )
 
-    df["RSI"] = (
+    data["RSI"] = (
         100 - (100 / (1 + rs))
     )
 
     # ATR
-    high_low = (
-        df["High"] - df["Low"]
-    )
-
-    high_close = (
-        df["High"]
-        - df["Close"].shift()
-    ).abs()
-
-    low_close = (
-        df["Low"]
-        - df["Close"].shift()
-    ).abs()
-
-    true_range = pd.concat(
+    tr = pd.concat(
         [
-            high_low,
-            high_close,
-            low_close,
+            high - low,
+            (high - close.shift()).abs(),
+            (low - close.shift()).abs(),
         ],
-        axis=1,
+        axis=1
     ).max(axis=1)
 
-    df["ATR"] = (
-        true_range
-        .rolling(14)
-        .mean()
+    data["ATR"] = (
+        tr.rolling(14).mean()
     )
 
-    # Volume
-    df["VOL20"] = (
-        df["Volume"]
-        .rolling(20)
-        .mean()
+    data["VOL20"] = (
+        volume.rolling(20).mean()
     )
 
-    # Returns
-    df["RETURN5"] = (
-        df["Close"]
-        .pct_change(5)
-        * 100
+    data["RETURN5"] = (
+        close.pct_change(5)
     )
 
-    df["RETURN20"] = (
-        df["Close"]
-        .pct_change(20)
-        * 100
+    data["RETURN20"] = (
+        close.pct_change(20)
     )
 
-    return df
+    return data
 
 
-# =========================================================
+# ============================================================
+# TECHNICAL SCORE
+# ============================================================
+
+def technical_score(data):
+
+    last = data.iloc[-1]
+
+    close = safe_float(
+        last["Close"]
+    )
+
+    sma20 = safe_float(
+        last["SMA20"]
+    )
+
+    sma50 = safe_float(
+        last["SMA50"]
+    )
+
+    sma200 = safe_float(
+        last["SMA200"]
+    )
+
+    rsi = safe_float(
+        last["RSI"],
+        50
+    )
+
+    macd = safe_float(
+        last["MACD"]
+    )
+
+    signal = safe_float(
+        last["MACD_SIGNAL"]
+    )
+
+    score = 0
+
+    score += (
+        2 if close > sma20
+        else -2
+    )
+
+    score += (
+        2 if close > sma50
+        else -2
+    )
+
+    score += (
+        2 if sma50 > sma200
+        else -2
+    )
+
+    score += (
+        2 if macd > signal
+        else -2
+    )
+
+    if 50 <= rsi <= 70:
+        score += 1
+
+    elif rsi < 30:
+        score += 1
+
+    elif rsi > 75:
+        score -= 1
+
+    return score
+
+
+# ============================================================
+# AI PREDICTION
+# ============================================================
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def predict_prices(data):
+
+    if len(data) < 180:
+        return None
+
+    features = [
+        "Close",
+        "SMA20",
+        "SMA50",
+        "SMA200",
+        "RSI",
+        "MACD",
+        "MACD_SIGNAL",
+        "ATR",
+        "RETURN5",
+        "RETURN20",
+    ]
+
+    df = data.copy()
+
+    df["TARGET1"] = (
+        df["Close"].shift(-1)
+    )
+
+    df["TARGET5"] = (
+        df["Close"].shift(-5)
+    )
+
+    df["TARGET20"] = (
+        df["Close"].shift(-20)
+    )
+
+    clean = df.dropna(
+        subset=features + [
+            "TARGET1",
+            "TARGET5",
+            "TARGET20"
+        ]
+    )
+
+    if len(clean) < 100:
+        return None
+
+    latest = (
+        df[features]
+        .iloc[[-1]]
+        .dropna()
+    )
+
+    if latest.empty:
+        return None
+
+    predictions = {}
+
+    for name, target, seed in [
+        ("1d", "TARGET1", 42),
+        ("5d", "TARGET5", 43),
+        ("20d", "TARGET20", 44),
+    ]:
+
+        model = RandomForestRegressor(
+            n_estimators=150,
+            max_depth=8,
+            random_state=seed,
+            n_jobs=-1
+        )
+
+        model.fit(
+            clean[features],
+            clean[target]
+        )
+
+        predictions[name] = (
+            safe_float(
+                model.predict(latest)[0]
+            )
+        )
+
+    return predictions
+
+
+# ============================================================
+# NIFTY TREND
+# ============================================================
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_market_trend():
+
+    data = get_data(
+        "^NSEI"
+    )
+
+    if data.empty:
+        return "Unknown", 0
+
+    data = add_indicators(
+        data
+    )
+
+    last = data.iloc[-1]
+
+    close = safe_float(
+        last["Close"]
+    )
+
+    sma20 = safe_float(
+        last["SMA20"]
+    )
+
+    sma50 = safe_float(
+        last["SMA50"]
+    )
+
+    score = 0
+
+    score += (
+        1 if close > sma20
+        else -1
+    )
+
+    score += (
+        1 if close > sma50
+        else -1
+    )
+
+    if score == 2:
+        return "Bullish", 2
+
+    if score == -2:
+        return "Bearish", -2
+
+    return "Neutral", score
+
+
+# ============================================================
 # NEWS
-# =========================================================
+# ============================================================
 
-def get_news(symbol, company_name):
+@st.cache_data(ttl=900, show_spinner=False)
+def get_news(symbol):
 
     try:
 
         query = quote(
-            f"{company_name} stock India"
+            f"{symbol} India stock"
         )
 
         url = (
@@ -626,18 +768,21 @@ def get_news(symbol, company_name):
             timeout=10,
             headers={
                 "User-Agent": "Mozilla/5.0"
-            },
+            }
         )
 
-        response.raise_for_status()
+        if response.status_code != 200:
+            return []
 
         root = ET.fromstring(
             response.content
         )
 
-        news = []
+        articles = []
 
-        for item in root.findall(".//item")[:10]:
+        for item in root.findall(
+            ".//item"
+        )[:8]:
 
             title = item.findtext(
                 "title",
@@ -649,65 +794,72 @@ def get_news(symbol, company_name):
                 ""
             )
 
-            pub_date = item.findtext(
+            date = item.findtext(
                 "pubDate",
                 ""
             )
 
-            title = html.unescape(
-                title
-            )
+            if title:
 
-            news.append(
-                {
-                    "title": title,
+                articles.append({
+                    "title": html.unescape(
+                        title
+                    ),
                     "link": link,
-                    "date": pub_date,
-                }
-            )
+                    "date": date,
+                })
 
-        return news
+        return articles
 
     except Exception:
+
         return []
 
 
+# ============================================================
+# NEWS SENTIMENT
+# ============================================================
+
 def news_sentiment(news):
 
-    if not news:
-        return 0
-
     positive_words = [
-        "gain",
-        "growth",
         "profit",
-        "surge",
-        "rise",
+        "growth",
         "strong",
+        "upgrade",
+        "buy",
         "bullish",
+        "surge",
+        "rally",
         "positive",
         "record",
-        "upgrade",
+        "order",
+        "deal",
+        "contract",
     ]
 
     negative_words = [
-        "fall",
-        "drop",
         "loss",
         "weak",
-        "decline",
-        "bearish",
-        "negative",
         "downgrade",
+        "sell",
+        "bearish",
+        "fall",
+        "drop",
+        "decline",
+        "negative",
+        "debt",
         "risk",
-        "crisis",
+        "warning",
     ]
 
     score = 0
 
-    for item in news:
+    for article in news:
 
-        title = item["title"].lower()
+        title = article[
+            "title"
+        ].lower()
 
         for word in positive_words:
 
@@ -719,342 +871,157 @@ def news_sentiment(news):
             if word in title:
                 score -= 1
 
-    return score
+    if score >= 3:
+        sentiment = "Positive"
 
-
-# =========================================================
-# TECHNICAL SCORE
-# =========================================================
-
-def technical_score(row):
-
-    score = 0
-
-    close = safe_float(row["Close"])
-
-    sma20 = safe_float(row["SMA20"])
-    sma50 = safe_float(row["SMA50"])
-    sma200 = safe_float(row["SMA200"])
-
-    rsi = safe_float(row["RSI"])
-
-    macd = safe_float(row["MACD"])
-    macd_signal = safe_float(
-        row["MACD_SIGNAL"]
-    )
-
-    # Price vs moving averages
-    if close > sma20:
-        score += 1
-    else:
-        score -= 1
-
-    if close > sma50:
-        score += 1
-    else:
-        score -= 1
-
-    if close > sma200:
-        score += 1
-    else:
-        score -= 1
-
-    # MACD
-    if macd > macd_signal:
-        score += 2
-    else:
-        score -= 2
-
-    # RSI
-    if 50 <= rsi <= 70:
-        score += 2
-
-    elif rsi > 70:
-        score -= 1
-
-    elif rsi < 30:
-        score += 1
+    elif score <= -3:
+        sentiment = "Negative"
 
     else:
-        score -= 1
+        sentiment = "Neutral"
 
-    return score
-
-
-# =========================================================
-# MACHINE LEARNING
-# =========================================================
-
-FEATURES = [
-    "Close",
-    "SMA20",
-    "SMA50",
-    "SMA200",
-    "MACD",
-    "MACD_SIGNAL",
-    "RSI",
-    "ATR",
-    "VOL20",
-    "RETURN5",
-    "RETURN20",
-]
+    return score, sentiment
 
 
-@st.cache_data(ttl=1800)
-def ml_predictions(df):
-
-    data = df.copy()
-
-    data["TARGET_1D"] = (
-        data["Close"]
-        .shift(-1)
-    )
-
-    data["TARGET_5D"] = (
-        data["Close"]
-        .shift(-5)
-    )
-
-    data["TARGET_20D"] = (
-        data["Close"]
-        .shift(-20)
-    )
-
-    data = data.dropna()
-
-    if len(data) < 100:
-        return None
-
-    X = data[FEATURES]
-
-    latest = (
-        df[FEATURES]
-        .iloc[-1:]
-        .copy()
-    )
-
-    predictions = {}
-
-    for horizon, target in [
-        ("1D", "TARGET_1D"),
-        ("5D", "TARGET_5D"),
-        ("20D", "TARGET_20D"),
-    ]:
-
-        y = data[target]
-
-        model = RandomForestRegressor(
-            n_estimators=250,
-            max_depth=8,
-            random_state=42,
-            n_jobs=-1,
-        )
-
-        model.fit(
-            X,
-            y,
-        )
-
-        prediction = model.predict(
-            latest
-        )[0]
-
-        predictions[horizon] = float(
-            prediction
-        )
-
-    return predictions
-
-
-# =========================================================
-# MARKET TREND
-# =========================================================
-
-@st.cache_data(ttl=900)
-def market_trend():
-
-    try:
-
-        nifty = yf.download(
-            "^NSEI",
-            period="6mo",
-            interval="1d",
-            auto_adjust=True,
-            progress=False,
-        )
-
-        if nifty.empty:
-            return "Neutral"
-
-        if isinstance(
-            nifty.columns,
-            pd.MultiIndex
-        ):
-            nifty.columns = (
-                nifty.columns
-                .get_level_values(0)
-            )
-
-        close = nifty["Close"]
-
-        sma20 = (
-            close
-            .rolling(20)
-            .mean()
-            .iloc[-1]
-        )
-
-        sma50 = (
-            close
-            .rolling(50)
-            .mean()
-            .iloc[-1]
-        )
-
-        current = close.iloc[-1]
-
-        if current > sma20 and sma20 > sma50:
-            return "Bullish"
-
-        if current < sma20 and sma20 < sma50:
-            return "Bearish"
-
-        return "Neutral"
-
-    except Exception:
-        return "Neutral"
-
-
-# =========================================================
+# ============================================================
 # SIGNAL
-# =========================================================
+# ============================================================
 
 def generate_signal(
     technical,
     news_score,
-    market,
     prediction_change,
+    market_score
 ):
 
-    score = 0
+    score = (
+        technical * 0.55
+        + news_score * 0.20
+        + np.sign(prediction_change)
+        * min(abs(prediction_change), 5)
+        * 0.25
+        + market_score * 0.50
+    )
 
-    score += technical
-
-    if news_score > 0:
-        score += 1
-
-    elif news_score < 0:
-        score -= 1
-
-    if market == "Bullish":
-        score += 1
-
-    elif market == "Bearish":
-        score -= 1
-
-    if prediction_change > 2:
-        score += 2
-
-    elif prediction_change > 0.5:
-        score += 1
-
-    elif prediction_change < -2:
-        score -= 2
-
-    elif prediction_change < -0.5:
-        score -= 1
-
-    if score >= 6:
+    if score >= 5:
         return "STRONG BUY"
 
-    if score >= 3:
+    if score >= 2:
         return "BUY"
 
-    if score <= -6:
+    if score <= -5:
         return "STRONG SELL"
 
-    if score <= -3:
+    if score <= -2:
         return "SELL"
 
     return "HOLD"
 
 
-# =========================================================
+# ============================================================
 # TRADE LEVELS
-# =========================================================
+# ============================================================
 
 def trade_levels(
-    cmp,
-    predicted_price,
+    current,
+    prediction,
     atr,
-    horizon="1D",
+    signal
 ):
 
-    cmp = safe_float(cmp)
-    predicted_price = safe_float(
-        predicted_price
+    current = safe_float(
+        current
     )
-    atr = safe_float(atr)
 
-    if cmp <= 0:
-        return {
-            "target1": 0,
-            "target2": 0,
-            "stop": 0,
-            "risk": 0,
-            "reward": 0,
-            "rr": 0,
-        }
+    prediction = safe_float(
+        prediction
+    )
+
+    atr = safe_float(
+        atr
+    )
 
     if atr <= 0:
-        atr = cmp * 0.02
+        atr = current * 0.02
 
-    multipliers = {
-        "1D": 1.0,
-        "5D": 1.5,
-        "20D": 2.0,
-    }
+    if signal in [
+        "BUY",
+        "STRONG BUY"
+    ]:
 
-    multiplier = multipliers.get(
-        horizon,
-        1.0,
-    )
+        target1 = max(
+            prediction,
+            current + atr * 0.75
+        )
 
-    direction = (
-        1
-        if predicted_price >= cmp
-        else -1
-    )
+        target2 = max(
+            current + atr * 1.50,
+            prediction * 1.015
+        )
 
-    target1 = (
-        cmp
-        + direction
-        * atr
-        * multiplier
-    )
+        stop = (
+            current
+            - atr * 1.20
+        )
 
-    target2 = (
-        cmp
-        + direction
-        * atr
-        * multiplier
-        * 2
-    )
+        risk = max(
+            current - stop,
+            0.01
+        )
 
-    stop = (
-        cmp
-        - direction
-        * atr
-        * multiplier
-    )
+        reward = max(
+            target1 - current,
+            0
+        )
 
-    risk = abs(
-        cmp - stop
-    )
+    elif signal in [
+        "SELL",
+        "STRONG SELL"
+    ]:
 
-    reward = abs(
-        target2 - cmp
-    )
+        target1 = min(
+            prediction,
+            current - atr * 0.75
+        )
+
+        target2 = min(
+            current - atr * 1.50,
+            prediction * 0.985
+        )
+
+        stop = (
+            current
+            + atr * 1.20
+        )
+
+        risk = max(
+            stop - current,
+            0.01
+        )
+
+        reward = max(
+            current - target1,
+            0
+        )
+
+    else:
+
+        target1 = prediction
+        target2 = prediction
+
+        stop = (
+            current - atr
+            if prediction >= current
+            else current + atr
+        )
+
+        risk = abs(
+            current - stop
+        )
+
+        reward = abs(
+            target1 - current
+        )
 
     rr = (
         reward / risk
@@ -1063,1080 +1030,924 @@ def trade_levels(
     )
 
     return {
-        "target1": target1,
-        "target2": target2,
-        "stop": stop,
-        "risk": risk,
-        "reward": reward,
+        "target1": max(
+            target1,
+            0.01
+        ),
+        "target2": max(
+            target2,
+            0.01
+        ),
+        "stop": max(
+            stop,
+            0.01
+        ),
         "rr": rr,
     }
 
 
-# =========================================================
-# CONFIDENCE
-# =========================================================
-
-def confidence(
-    technical,
-    news_score,
-    market,
-    prediction_change,
-):
-
-    value = 50
-
-    value += min(
-        abs(technical) * 4,
-        20,
-    )
-
-    value += min(
-        abs(news_score) * 3,
-        10,
-    )
-
-    if market != "Neutral":
-        value += 8
-
-    value += min(
-        abs(prediction_change),
-        12,
-    )
-
-    return int(
-        max(
-            45,
-            min(
-                value,
-                95,
-            ),
-        )
-    )
-
-
-# =========================================================
-# PREDICTION REASON
-# =========================================================
-
-def prediction_reason(
-    horizon,
-    row,
-    prediction,
-    cmp,
-):
-
-    reasons = []
-
-    close = safe_float(
-        row["Close"]
-    )
-
-    sma20 = safe_float(
-        row["SMA20"]
-    )
-
-    sma50 = safe_float(
-        row["SMA50"]
-    )
-
-    sma200 = safe_float(
-        row["SMA200"]
-    )
-
-    rsi = safe_float(
-        row["RSI"]
-    )
-
-    macd = safe_float(
-        row["MACD"]
-    )
-
-    macd_signal = safe_float(
-        row["MACD_SIGNAL"]
-    )
-
-    change = (
-        (
-            prediction - cmp
-        )
-        / cmp
-        * 100
-        if cmp
-        else 0
-    )
-
-    if close > sma20:
-        reasons.append(
-            "Price is above the 20-day moving average."
-        )
-    else:
-        reasons.append(
-            "Price is below the 20-day moving average."
-        )
-
-    if close > sma50:
-        reasons.append(
-            "Price remains above the 50-day moving average."
-        )
-    else:
-        reasons.append(
-            "Price is below the 50-day moving average."
-        )
-
-    if close > sma200:
-        reasons.append(
-            "Long-term trend is positive."
-        )
-    else:
-        reasons.append(
-            "Long-term trend remains weak."
-        )
-
-    if macd > macd_signal:
-        reasons.append(
-            "MACD is above its signal line."
-        )
-    else:
-        reasons.append(
-            "MACD is below its signal line."
-        )
-
-    if rsi >= 70:
-        reasons.append(
-            "RSI indicates an overbought condition."
-        )
-    elif rsi <= 30:
-        reasons.append(
-            "RSI indicates an oversold condition."
-        )
-    elif rsi >= 50:
-        reasons.append(
-            "RSI has positive momentum."
-        )
-    else:
-        reasons.append(
-            "RSI indicates relatively weak momentum."
-        )
-
-    if change > 0:
-        reasons.append(
-            f"Model estimates approximately {change:.2f}% upside over {horizon}."
-        )
-    else:
-        reasons.append(
-            f"Model estimates approximately {abs(change):.2f}% downside over {horizon}."
-        )
-
-    return reasons
-
-
-# =========================================================
+# ============================================================
 # ANALYZE STOCK
-# =========================================================
+# ============================================================
 
 def analyze_stock(
+    symbol,
     ticker,
-    company_name,
+    market_name,
+    market_score
 ):
 
-    # -----------------------------------------------------
+    data = get_data(
+        ticker
+    )
+
+    if data.empty:
+        return None
+
+    data = add_indicators(
+        data
+    )
+
+    data = data.dropna(
+        subset=["Close"]
+    )
+
+    if len(data) < 60:
+        return None
+
+    last = data.iloc[-1]
+
+    model_close = safe_float(
+        last["Close"]
+    )
+
     # Live quote
-    # -----------------------------------------------------
-
-    live = fetch_live_quote(
+    live = get_live_price(
         ticker
     )
 
-    # IMPORTANT:
-    # Market status is calculated separately from the
-    # cached Yahoo quote. This prevents stale "Pre-market"
-    # / "Market Closed" values.
-    market_status, status_detail = (
-        market_status_from_time()
-    )
+    if live:
 
-    live["market_status"] = (
-        market_status
-    )
+        current = live["price"]
+        today_change = live["change"]
 
-    live["status_detail"] = (
-        status_detail
-    )
+    else:
 
-    # -----------------------------------------------------
-    # Historical data
-    # -----------------------------------------------------
+        current = model_close
 
-    df = download_data(
-        ticker
-    )
-
-    if df.empty:
-        return None
-
-    df = add_indicators(
-        df
-    )
-
-    df = df.dropna()
-
-    if len(df) < 100:
-        return None
-
-    latest = df.iloc[-1]
-
-    model_date = df.index[-1]
-
-    # -----------------------------------------------------
-    # CMP
-    # -----------------------------------------------------
-
-    cmp = safe_float(
-        live["price"]
-    )
-
-    if cmp <= 0:
-        cmp = safe_float(
-            latest["Close"]
+        previous = safe_float(
+            data["Close"].iloc[-2]
         )
 
-    # -----------------------------------------------------
-    # ML
-    # -----------------------------------------------------
-
-    predictions = ml_predictions(
-        df
-    )
-
-    if predictions is None:
-        return None
-
-    # -----------------------------------------------------
-    # Market trend
-    # -----------------------------------------------------
-
-    market = market_trend()
-
-    # -----------------------------------------------------
-    # News
-    # -----------------------------------------------------
-
-    news = get_news(
-        ticker,
-        company_name,
-    )
-
-    news_score = news_sentiment(
-        news
-    )
-
-    # -----------------------------------------------------
-    # Technical score
-    # -----------------------------------------------------
-
-    tech_score = technical_score(
-        latest
-    )
-
-    # -----------------------------------------------------
-    # Predictions
-    #
-    # IMPORTANT:
-    # The ML model predicts based on the latest completed
-    # daily candle. We convert the predicted percentage
-    # move and apply it to the current live CMP.
-    # -----------------------------------------------------
-
-    prediction_prices = {}
-
-    for horizon in [
-        "1D",
-        "5D",
-        "20D",
-    ]:
-
-        model_prediction = safe_float(
-            predictions[horizon]
-        )
-
-        model_close = safe_float(
-            latest["Close"]
-        )
-
-        model_change = (
-            (
-                model_prediction
-                - model_close
-            )
-            / model_close
-            if model_close
+        today_change = (
+            (current / previous - 1)
+            * 100
+            if previous
             else 0
         )
 
-        prediction_prices[horizon] = (
-            cmp * (1 + model_change)
-        )
+    # Technical
+    tech = technical_score(
+        data
+    )
 
-    # -----------------------------------------------------
+    # News
+    news = get_news(
+        symbol
+    )
+
+    news_score, sentiment = (
+        news_sentiment(news)
+    )
+
+    # ML
+    ml = predict_prices(
+        data
+    )
+
+    if ml:
+
+        model_changes = {
+            "1d": (
+                (ml["1d"] / model_close - 1)
+                * 100
+            ),
+            "5d": (
+                (ml["5d"] / model_close - 1)
+                * 100
+            ),
+            "20d": (
+                (ml["20d"] / model_close - 1)
+                * 100
+            ),
+        }
+
+    else:
+
+        model_changes = {
+            "1d": 0.5,
+            "5d": 1.5,
+            "20d": 3.0,
+        }
+
+    # Apply model percentage change
+    # to live CMP
+    predictions = {
+        "1d": current * (
+            1 + model_changes["1d"] / 100
+        ),
+        "5d": current * (
+            1 + model_changes["5d"] / 100
+        ),
+        "20d": current * (
+            1 + model_changes["20d"] / 100
+        ),
+    }
+
     # Signal
-    # -----------------------------------------------------
-
-    one_day_change = (
-        (
-            prediction_prices["1D"]
-            - cmp
-        )
-        / cmp
-        * 100
-        if cmp
-        else 0
-    )
-
     signal = generate_signal(
-        tech_score,
+        tech,
         news_score,
-        market,
-        one_day_change,
+        model_changes["1d"],
+        market_score
     )
 
-    conf = confidence(
-        tech_score,
-        news_score,
-        market,
-        one_day_change,
+    # Trade plan
+    levels = trade_levels(
+        current,
+        predictions["1d"],
+        safe_float(last["ATR"]),
+        signal
     )
 
-    # -----------------------------------------------------
-    # Trade plans
-    # -----------------------------------------------------
+    # Confidence
+    confidence = 50
 
-    levels = {}
+    confidence += min(
+        abs(tech) * 4,
+        20
+    )
 
-    for horizon in [
-        "1D",
-        "5D",
-        "20D",
-    ]:
+    confidence += min(
+        abs(news_score) * 2,
+        10
+    )
 
-        levels[horizon] = trade_levels(
-            cmp,
-            prediction_prices[horizon],
-            latest["ATR"],
-            horizon,
-        )
+    confidence += (
+        abs(market_score) * 4
+    )
 
-    # -----------------------------------------------------
-    # Reasons
-    # -----------------------------------------------------
+    if levels["rr"] >= 2:
+        confidence += 10
 
-    reasons = {}
+    confidence += min(
+        abs(model_changes["1d"]),
+        10
+    )
 
-    for horizon in [
-        "1D",
-        "5D",
-        "20D",
-    ]:
-
-        reasons[horizon] = prediction_reason(
-            horizon,
-            latest,
-            prediction_prices[horizon],
-            cmp,
-        )
+    confidence = max(
+        25,
+        min(confidence, 95)
+    )
 
     return {
-        "ticker": ticker,
-        "company": company_name,
-        "df": df,
-        "latest": latest,
-        "model_date": model_date,
-        "live": live,
-        "cmp": cmp,
-        "predictions": prediction_prices,
-        "levels": levels,
+        "data": data,
+        "last": last,
+        "current": current,
+        "today_change": today_change,
         "signal": signal,
-        "confidence": conf,
-        "technical_score": tech_score,
-        "market": market,
+        "tech": tech,
         "news": news,
         "news_score": news_score,
-        "reasons": reasons,
+        "sentiment": sentiment,
+        "predictions": predictions,
+        "changes": model_changes,
+        "levels": levels,
+        "confidence": confidence,
+        "live": live,
     }
 
 
-# =========================================================
+# ============================================================
 # SIDEBAR
-# =========================================================
+# ============================================================
 
-st.sidebar.title("📊 Stock Analyzer")
-
-watchlist_type = st.sidebar.selectbox(
-    "Select Watchlist",
-    [
-        "NIFTY 10",
-        "NIFTY 50",
-        "Custom Stock",
-    ],
+st.sidebar.title(
+    "📊 Stock Analyzer"
 )
 
-if watchlist_type == "NIFTY 10":
-
-    selected_symbol = st.sidebar.selectbox(
-        "Select Stock",
-        list(NIFTY_10.keys()),
-    )
-
-    ticker = NIFTY_10[
-        selected_symbol
+universe_name = st.sidebar.selectbox(
+    "Stock Universe",
+    [
+        "Nifty 10",
+        "Nifty 50",
+        "Custom Stock"
     ]
+)
 
-    company_name = selected_symbol
+if universe_name == "Nifty 10":
 
-elif watchlist_type == "NIFTY 50":
+    universe = NIFTY_10
 
-    selected_symbol = st.sidebar.selectbox(
-        "Select Stock",
-        list(NIFTY_50.keys()),
-    )
+elif universe_name == "Nifty 50":
 
-    ticker = NIFTY_50[
-        selected_symbol
-    ]
-
-    company_name = selected_symbol
+    universe = NIFTY_50
 
 else:
 
-    custom_symbol = st.sidebar.text_input(
-        "NSE Symbol",
-        value="ITC",
-    ).strip().upper()
+    universe = {}
 
-    if not custom_symbol:
-        st.stop()
+
+if universe_name == "Custom Stock":
+
+    symbol = st.sidebar.text_input(
+        "NSE Symbol",
+        "RELIANCE"
+    ).upper().strip()
 
     ticker = (
-        custom_symbol
-        if custom_symbol.endswith(".NS")
-        else f"{custom_symbol}.NS"
+        symbol
+        if symbol.endswith(".NS")
+        else symbol + ".NS"
     )
-
-    company_name = custom_symbol.replace(
-        ".NS",
-        "",
-    )
-
-
-analyze_button = st.sidebar.button(
-    "🔍 Analyze Stock",
-    use_container_width=True,
-)
-
-
-# =========================================================
-# HEADER
-# =========================================================
-
-st.markdown(
-    '<div class="main-title">📈 Indian Stock AI Analyzer</div>',
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    '<div class="subtitle">AI-powered technical, market and prediction analysis for Indian equities</div>',
-    unsafe_allow_html=True,
-)
-
-
-# =========================================================
-# ANALYSIS
-# =========================================================
-
-if analyze_button or "analysis" not in st.session_state:
-
-    with st.spinner(
-        f"Analyzing {company_name}..."
-    ):
-
-        result = analyze_stock(
-            ticker,
-            company_name,
-        )
-
-    if result is None:
-
-        st.error(
-            "Unable to analyze this stock. "
-            "Please check the symbol and try again."
-        )
-
-        st.stop()
-
-    st.session_state[
-        "analysis"
-    ] = result
 
 else:
 
-    result = st.session_state[
-        "analysis"
+    symbol = st.sidebar.selectbox(
+        "Select Stock",
+        list(universe.keys())
+    )
+
+    ticker = universe[
+        symbol
     ]
 
 
-# =========================================================
-# DATA
-# =========================================================
-
-live = result["live"]
-
-cmp = result["cmp"]
-
-change_pct = safe_float(
-    live["change_pct"]
+scan = st.sidebar.checkbox(
+    "Scan entire universe"
 )
+
+
+if st.sidebar.button(
+    "🔄 Refresh Data",
+    use_container_width=True
+):
+
+    st.cache_data.clear()
+    st.rerun()
+
+
+# ============================================================
+# HEADER
+# ============================================================
+
+st.title(
+    "📈 Indian Stock AI Analyzer"
+)
+
+st.markdown(
+    '<div class="subtitle">'
+    'Simple technical analysis • AI prediction • Trading signals'
+    '</div>',
+    unsafe_allow_html=True
+)
+
+
+# ============================================================
+# MARKET
+# ============================================================
+
+market_name, market_score = (
+    get_market_trend()
+)
+
+
+# ============================================================
+# SCANNER
+# ============================================================
+
+if scan:
+
+    st.subheader(
+        f"🔎 {universe_name} Scanner"
+    )
+
+    rows = []
+
+    progress = st.progress(0)
+
+    stocks = list(
+        universe.items()
+    )
+
+    for i, (
+        stock,
+        stock_ticker
+    ) in enumerate(stocks):
+
+        try:
+
+            result = analyze_stock(
+                stock,
+                stock_ticker,
+                market_name,
+                market_score
+            )
+
+            if result:
+
+                rows.append({
+                    "Stock": stock,
+                    "CMP": round(
+                        result["current"],
+                        2
+                    ),
+                    "Signal": result["signal"],
+                    "1D %": round(
+                        result["changes"]["1d"],
+                        2
+                    ),
+                    "5D %": round(
+                        result["changes"]["5d"],
+                        2
+                    ),
+                    "20D %": round(
+                        result["changes"]["20d"],
+                        2
+                    ),
+                    "Stop Loss": round(
+                        result["levels"]["stop"],
+                        2
+                    ),
+                    "R/R": round(
+                        result["levels"]["rr"],
+                        2
+                    ),
+                    "Confidence": (
+                        f'{result["confidence"]:.0f}%'
+                    ),
+                })
+
+        except Exception:
+            pass
+
+        progress.progress(
+            (i + 1) / len(stocks)
+        )
+
+    progress.empty()
+
+    if rows:
+
+        df_scan = pd.DataFrame(
+            rows
+        )
+
+        st.dataframe(
+            df_scan,
+            use_container_width=True,
+            hide_index=True
+        )
+
+    else:
+
+        st.warning(
+            "No stock data available."
+        )
+
+    st.stop()
+
+
+# ============================================================
+# ANALYSIS
+# ============================================================
+
+with st.spinner(
+    f"Analyzing {symbol}..."
+):
+
+    result = analyze_stock(
+        symbol,
+        ticker,
+        market_name,
+        market_score
+    )
+
+
+if result is None:
+
+    st.error(
+        "Unable to retrieve data for this stock."
+    )
+
+    st.stop()
+
+
+# ============================================================
+# VARIABLES
+# ============================================================
+
+data = result["data"]
+last = result["last"]
+
+current = result["current"]
+today_change = result["today_change"]
 
 signal = result["signal"]
 
-confidence_value = (
-    result["confidence"]
-)
-
 predictions = result[
     "predictions"
+]
+
+changes = result[
+    "changes"
 ]
 
 levels = result[
     "levels"
 ]
 
-latest = result[
-    "latest"
-]
-
-news = result[
-    "news"
-]
-
-market = result[
-    "market"
-]
-
-reasons = result[
-    "reasons"
+live = result[
+    "live"
 ]
 
 
-# =========================================================
+# ============================================================
 # STOCK HEADER
-# =========================================================
+# ============================================================
 
-col1, col2 = st.columns(
-    [2.5, 1.5]
+price_class = (
+    "positive"
+    if today_change >= 0
+    else "negative"
 )
 
-with col1:
+arrow = (
+    "↑"
+    if today_change >= 0
+    else "↓"
+)
 
-    st.markdown(
-        f"""
+market_status, status_detail = (
+    market_status()
+)
+
+
+quote_time = (
+    live.get("quote_time")
+    if live
+    else None
+)
+
+quote_text = (
+    quote_time.strftime(
+        "%d %b %Y, %I:%M:%S %p IST"
+    )
+    if quote_time
+    else "Unavailable"
+)
+
+
+st.markdown(
+    f"""
+    <div class="stock-box">
+
         <div class="stock-name">
-            {company_name}
+            {html.escape(symbol)}
         </div>
 
         <div class="stock-symbol">
-            NSE • {ticker}
+            NSE • {html.escape(ticker)}
         </div>
 
-        <div class="cmp-label">
-            Last Traded Price
+        <div style="
+            color:#94a3b8;
+            font-size:12px;
+            margin-top:18px;
+        ">
+            LAST TRADED PRICE
         </div>
 
-        <div class="cmp-price">
-            {money(cmp)}
+        <div class="price">
+            {money(current)}
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
 
-    change_class = (
-        "positive"
-        if change_pct > 0
-        else "negative"
-        if change_pct < 0
-        else "neutral"
-    )
-
-    arrow = (
-        "↑"
-        if change_pct > 0
-        else "↓"
-        if change_pct < 0
-        else "→"
-    )
-
-    st.markdown(
-        f"""
-        <div class="{change_class}">
-            {arrow} {abs(change_pct):.2f}% today
+        <div class="{price_class}">
+            {arrow} {abs(today_change):.2f}% today
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
 
-    status_class = (
-        "status-open"
-        if live["market_status"]
-        == "Market Open"
-        else "status-closed"
-    )
+        <div style="
+            margin-top:12px;
+            font-size:13px;
+        ">
 
-    quote_time = live.get(
-        "quote_time"
-    )
+            <b>
+                {"🟢" if market_status == "Market Open" else "⚪"}
+                {market_status}
+            </b>
 
-    quote_text = (
-        quote_time.strftime(
-            "%d %b %Y, %I:%M:%S %p IST"
-        )
-        if quote_time
-        else "Unavailable"
-    )
-
-    model_date = result[
-        "model_date"
-    ]
-
-    model_date_text = (
-        model_date.strftime(
-            "%d %b %Y"
-        )
-        if hasattr(
-            model_date,
-            "strftime",
-        )
-        else str(model_date)
-    )
-
-    st.markdown(
-        f"""
-        <div style="margin-top:12px;">
-            <span class="status-pill {status_class}">
-                ● {live["market_status"]}
+            <span style="
+                color:#64748b;
+                margin-left:10px;
+            ">
+                {status_detail}
             </span>
+
         </div>
 
         <div style="
+            color:#64748b;
+            font-size:11px;
             margin-top:8px;
-            color:#64748b;
-            font-size:11px;
         ">
-            {live["status_detail"]}
+            Quote time: {quote_text}
         </div>
 
         <div style="
-            margin-top:6px;
             color:#64748b;
             font-size:11px;
-        ">
-            Quote time:
-            {quote_text}
-        </div>
-
-        <div style="
             margin-top:4px;
-            color:#64748b;
-            font-size:11px;
         ">
-            Prediction model data through:
-            {model_date_text}
+            Model data through:
+            {pd.Timestamp(data.index[-1]).strftime("%d %b %Y")}
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
 
-
-with col2:
-
-    st.markdown(
-        f"""
-        <div class="prediction-card">
-
-            <div class="prediction-title">
-                Overall Signal
-            </div>
-
-            <div style="
-                font-size:28px;
-                font-weight:800;
-                margin-top:8px;
-            ">
-                {signal}
-            </div>
-
-            <div style="
-                margin-top:10px;
-                color:#64748b;
-                font-size:13px;
-            ">
-                Confidence
-            </div>
-
-            <div style="
-                font-size:22px;
-                font-weight:800;
-                margin-top:3px;
-            ">
-                {confidence_value}%
-            </div>
-
-            <div style="
-                margin-top:10px;
-                color:#64748b;
-                font-size:13px;
-            ">
-                Market Trend
-            </div>
-
-            <div style="
-                font-size:18px;
-                font-weight:700;
-                margin-top:3px;
-            ">
-                {market}
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-# =========================================================
-# PREDICTIONS
-# =========================================================
-
-st.markdown(
-    '<div class="section-title">🤖 AI Price Predictions</div>',
-    unsafe_allow_html=True,
+    </div>
+    """,
+    unsafe_allow_html=True
 )
 
-prediction_cols = st.columns(3)
 
-for col, horizon in zip(
-    prediction_cols,
-    ["1D", "5D", "20D"],
-):
+# ============================================================
+# SUMMARY
+# ============================================================
 
-    predicted = predictions[
-        horizon
-    ]
+st.subheader(
+    "📌 Summary"
+)
 
-    change = (
-        (
-            predicted - cmp
-        )
-        / cmp
-        * 100
-        if cmp
-        else 0
+c1, c2, c3, c4 = st.columns(4)
+
+with c1:
+
+    st.metric(
+        "Signal",
+        signal
     )
 
-    change_class = (
-        "positive"
-        if change > 0
-        else "negative"
-        if change < 0
-        else "neutral"
+with c2:
+
+    st.metric(
+        "Confidence",
+        f'{result["confidence"]:.0f}%'
     )
 
-    arrow = (
-        "↑"
-        if change > 0
-        else "↓"
-        if change < 0
-        else "→"
+with c3:
+
+    st.metric(
+        "Technical Score",
+        result["tech"]
     )
 
-    with col:
+with c4:
 
-        st.markdown(
-            f"""
-            <div class="prediction-card">
-
-                <div class="prediction-title">
-                    {horizon} Prediction
-                </div>
-
-                <div class="prediction-price">
-                    {money(predicted)}
-                </div>
-
-                <div class="prediction-change {change_class}">
-                    {arrow} {abs(change):.2f}%
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    st.metric(
+        "Market Trend",
+        market_name
+    )
 
 
-# =========================================================
+# ============================================================
+# AI PREDICTIONS
+# ============================================================
+
+st.subheader(
+    "🤖 AI Price Predictions"
+)
+
+p1, p2, p3 = st.columns(3)
+
+with p1:
+
+    st.metric(
+        "1 Trading Day",
+        money(predictions["1d"]),
+        f'{changes["1d"]:+.2f}%'
+    )
+
+with p2:
+
+    st.metric(
+        "5 Trading Days",
+        money(predictions["5d"]),
+        f'{changes["5d"]:+.2f}%'
+    )
+
+with p3:
+
+    st.metric(
+        "20 Trading Days",
+        money(predictions["20d"]),
+        f'{changes["20d"]:+.2f}%'
+    )
+
+
+# ============================================================
 # TRADE PLAN
-# =========================================================
+# ============================================================
 
-st.markdown(
-    '<div class="section-title">🎯 Trade Plan</div>',
-    unsafe_allow_html=True,
+st.subheader(
+    "🎯 Trade Plan"
 )
 
-trade_cols = st.columns(3)
+t1, t2, t3, t4, t5 = st.columns(5)
 
-for col, horizon in zip(
-    trade_cols,
-    ["1D", "5D", "20D"],
-):
+with t1:
 
-    plan = levels[
-        horizon
-    ]
-
-    with col:
-
-        st.markdown(
-            f"""
-            <div class="prediction-card">
-
-                <div class="prediction-title">
-                    {horizon} Trade Setup
-                </div>
-
-                <div style="
-                    margin-top:12px;
-                    font-size:14px;
-                    line-height:1.8;
-                ">
-
-                    <b>Target 1:</b>
-                    {money(plan["target1"])}
-                    <br>
-
-                    <b>Target 2:</b>
-                    {money(plan["target2"])}
-                    <br>
-
-                    <b>Stop Loss:</b>
-                    {money(plan["stop"])}
-                    <br>
-
-                    <b>Risk:</b>
-                    {money(plan["risk"])}
-                    <br>
-
-                    <b>Reward:</b>
-                    {money(plan["reward"])}
-                    <br>
-
-                    <b>Risk / Reward:</b>
-                    {plan["rr"]:.2f}
-
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-
-# =========================================================
-# PREDICTION REASONS
-# =========================================================
-
-st.markdown(
-    '<div class="section-title">🧠 Why the Model Predicts This</div>',
-    unsafe_allow_html=True,
-)
-
-for horizon in [
-    "1D",
-    "5D",
-    "20D",
-]:
-
-    st.markdown(
-        f"### {horizon}"
+    st.metric(
+        "Entry / CMP",
+        money(current)
     )
 
-    for reason in reasons[
-        horizon
-    ]:
+with t2:
 
-        st.markdown(
-            f"""
-            <div class="reason-box">
-                • {reason}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    st.metric(
+        "Target 1",
+        money(levels["target1"])
+    )
+
+with t3:
+
+    st.metric(
+        "Target 2",
+        money(levels["target2"])
+    )
+
+with t4:
+
+    st.metric(
+        "Stop Loss",
+        money(levels["stop"])
+    )
+
+with t5:
+
+    st.metric(
+        "Risk / Reward",
+        f'1 : {levels["rr"]:.2f}'
+    )
 
 
-# =========================================================
+# ============================================================
 # TECHNICAL INDICATORS
-# =========================================================
+# ============================================================
 
-st.markdown(
-    '<div class="section-title">📊 Technical Indicators</div>',
-    unsafe_allow_html=True,
+st.subheader(
+    "📊 Technical Indicators"
 )
 
-tech1, tech2, tech3, tech4, tech5 = st.columns(5)
+a, b, c, d, e, f = st.columns(6)
 
-with tech1:
+with a:
 
     st.metric(
         "RSI",
-        f"{safe_float(latest['RSI']):.1f}",
+        f'{safe_float(last["RSI"], 50):.1f}'
     )
 
-with tech2:
-
-    st.metric(
-        "MACD",
-        f"{safe_float(latest['MACD']):.2f}",
-    )
-
-with tech3:
+with b:
 
     st.metric(
         "SMA 20",
-        money(latest["SMA20"]),
+        money(last["SMA20"])
     )
 
-with tech4:
+with c:
 
     st.metric(
         "SMA 50",
-        money(latest["SMA50"]),
+        money(last["SMA50"])
     )
 
-with tech5:
+with d:
 
     st.metric(
         "SMA 200",
-        money(latest["SMA200"]),
+        money(last["SMA200"])
+    )
+
+with e:
+
+    st.metric(
+        "MACD",
+        f'{safe_float(last["MACD"]):.2f}'
+    )
+
+with f:
+
+    st.metric(
+        "ATR",
+        money(last["ATR"])
     )
 
 
-# =========================================================
-# PRICE CHART
-# =========================================================
+# ============================================================
+# CHART
+# ============================================================
 
-st.markdown(
-    '<div class="section-title">📈 Price Trend</div>',
-    unsafe_allow_html=True,
+st.subheader(
+    "📈 Price Trend"
 )
 
-chart_df = result[
-    "df"
-].copy()
-
-chart_data = chart_df[
+chart = data[
     [
         "Close",
         "SMA20",
         "SMA50",
-        "SMA200",
+        "SMA200"
     ]
 ].tail(180)
 
 st.line_chart(
-    chart_data
+    chart
 )
 
 
-# =========================================================
+# ============================================================
+# WHY?
+# ============================================================
+
+st.subheader(
+    "🧠 Why is the model predicting this?"
+)
+
+rsi = safe_float(
+    last["RSI"],
+    50
+)
+
+reasons = []
+
+reasons.append(
+    "Price is above the 20-day moving average."
+    if current > safe_float(last["SMA20"])
+    else
+    "Price is below the 20-day moving average."
+)
+
+reasons.append(
+    "Price is above the 50-day moving average."
+    if current > safe_float(last["SMA50"])
+    else
+    "Price is below the 50-day moving average."
+)
+
+reasons.append(
+    "Medium-term trend is bullish."
+    if safe_float(last["SMA50"])
+    > safe_float(last["SMA200"])
+    else
+    "Medium-term trend is weak."
+)
+
+reasons.append(
+    "MACD is bullish."
+    if safe_float(last["MACD"])
+    > safe_float(last["MACD_SIGNAL"])
+    else
+    "MACD is bearish."
+)
+
+if rsi < 30:
+
+    reasons.append(
+        f"RSI is {rsi:.1f}, indicating oversold conditions."
+    )
+
+elif rsi > 70:
+
+    reasons.append(
+        f"RSI is {rsi:.1f}, indicating overbought conditions."
+    )
+
+else:
+
+    reasons.append(
+        f"RSI is {rsi:.1f}."
+    )
+
+reasons.append(
+    f"Nifty trend is currently {market_name}."
+)
+
+for reason in reasons:
+
+    st.markdown(
+        f"""
+        <div class="reason">
+            • {reason}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+# ============================================================
 # NEWS
-# =========================================================
+# ============================================================
 
-st.markdown(
-    '<div class="section-title">📰 Latest News</div>',
-    unsafe_allow_html=True,
+st.subheader(
+    "📰 Latest News"
 )
+
+news = result["news"]
 
 if news:
 
-    for item in news:
+    for article in news[:6]:
 
-        title = item[
-            "title"
-        ]
+        title = html.escape(
+            article["title"]
+        )
 
-        link = item[
-            "link"
-        ]
+        link = article["link"]
+
+        date = html.escape(
+            article["date"]
+        )
 
         st.markdown(
-            f"- [{title}]({link})"
+            f"""
+            <div class="news">
+
+                <b>
+                    {title}
+                </b>
+
+                <div style="
+                    color:#64748b;
+                    font-size:11px;
+                    margin-top:5px;
+                ">
+                    {date}
+                </div>
+
+                <a href="{link}"
+                   target="_blank"
+                   style="
+                       color:#60a5fa;
+                       font-size:12px;
+                   ">
+                    Read article →
+                </a>
+
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
 else:
 
     st.info(
-        "No recent news found."
+        "No recent news available."
     )
 
 
-# =========================================================
-# FACTORS
-# =========================================================
+# ============================================================
+# NEWS SENTIMENT
+# ============================================================
 
-st.markdown(
-    '<div class="section-title">🔎 Key Factors</div>',
-    unsafe_allow_html=True,
+st.subheader(
+    "📰 News Sentiment"
 )
 
-factor1, factor2, factor3 = st.columns(3)
+n1, n2 = st.columns(2)
 
-with factor1:
+with n1:
 
     st.metric(
-        "Technical Score",
-        result[
-            "technical_score"
-        ],
+        "Sentiment",
+        result["sentiment"]
     )
 
-with factor2:
+with n2:
 
     st.metric(
-        "News Sentiment",
-        result[
-            "news_score"
-        ],
-    )
-
-with factor3:
-
-    st.metric(
-        "Market Trend",
-        market,
+        "News Score",
+        result["news_score"]
     )
 
 
-# =========================================================
+# ============================================================
 # DISCLAIMER
-# =========================================================
+# ============================================================
 
 st.markdown("---")
 
 st.caption(
     """
-    ⚠️ Disclaimer: This application provides
-    educational and informational analysis only.
-    AI predictions are estimates and are not
-    guaranteed. This is not financial advice.
-    Always perform your own research and consider
-    your risk tolerance before making investment
-    decisions.
+    ⚠️ This tool is for informational and educational
+    purposes only. AI predictions are estimates and
+    are not guaranteed. This is not financial advice.
     """
 )
