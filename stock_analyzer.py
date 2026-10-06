@@ -5,7 +5,7 @@ import numpy as np
 import requests
 import xml.etree.ElementTree as ET
 import html
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 from urllib.parse import quote
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
@@ -58,7 +58,7 @@ WATCHLIST = [
 ]
 
 # ============================================================
-# UTILITIES & SIGNAL FORMATTING
+# UTILITIES & YFINANCE COMPATIBILITY HELPERS
 # ============================================================
 
 def safe_float(value, default=0.0):
@@ -81,6 +81,24 @@ def get_signal_badge(signal_text):
         return f'<span class="badge-watch">{signal_text}</span>'
     else:
         return f'<span class="badge-avoid">{signal_text}</span>'
+
+def get_stock_df(bulk_df, ticker):
+    """Safely extracts a single stock's dataframe regardless of yfinance version."""
+    if isinstance(bulk_df.columns, pd.MultiIndex):
+        if ticker in bulk_df.columns.get_level_values(0):
+            return bulk_df[ticker]
+        elif ticker in bulk_df.columns.get_level_values(1):
+            return bulk_df.xs(ticker, axis=1, level=1)
+    return bulk_df
+
+def get_price_df(bulk_df, price_type):
+    """Safely extracts all stocks for a specific metric (Close, High, etc)."""
+    if isinstance(bulk_df.columns, pd.MultiIndex):
+        if price_type in bulk_df.columns.get_level_values(0):
+            return bulk_df[price_type]
+        elif price_type in bulk_df.columns.get_level_values(1):
+            return bulk_df.xs(price_type, axis=1, level=1)
+    return bulk_df
 
 # ============================================================
 # DATA FETCHING PIPELINE
@@ -229,62 +247,82 @@ def evaluate_institutional_models(fund_data, tech_data):
 
 @st.cache_data(ttl=900, show_spinner=False)
 def run_advanced_ai_model(df_stock):
-    if len(df_stock) < 180: return None
-    df = df_stock.copy()
-    close = df["Close"]
-    high = df["High"]
-    low = df["Low"]
-    vol = df["Volume"]
+    """Institutional Gradient Boosting + Volatility Ensemble with robust NaN and division-by-zero handling."""
+    try:
+        if df_stock is None or df_stock.empty: return None
+        
+        df = df_stock.copy()
+        if "Close" not in df.columns or "Volume" not in df.columns: return None
+        
+        # Drop rows where critical data is entirely missing
+        df = df.dropna(subset=["Close"]).copy()
+        if len(df) < 50: return None
+        
+        close = df["Close"]
+        high = df["High"] if "High" in df.columns else close
+        low = df["Low"] if "Low" in df.columns else close
+        vol = df["Volume"]
 
-    df["RET_1"] = close.pct_change(1)
-    df["RET_5"] = close.pct_change(5)
-    df["RET_20"] = close.pct_change(20)
-    df["SMA20"] = close.rolling(20).mean()
-    df["SMA50"] = close.rolling(50).mean()
-    df["DIST_SMA20"] = (close - df["SMA20"]) / df["SMA20"]
-    df["DIST_SMA50"] = (close - df["SMA50"]) / df["SMA50"]
-    tr = pd.concat([high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
-    df["ATR"] = tr.rolling(14).mean()
-    df["ATR_RATIO"] = df["ATR"] / close
+        # Feature Engineering with NaN protection
+        df["RET_1"] = close.pct_change(1).fillna(0)
+        df["RET_5"] = close.pct_change(5).fillna(0)
+        df["RET_20"] = close.pct_change(20).fillna(0)
+        df["SMA20"] = close.rolling(20).mean()
+        df["SMA50"] = close.rolling(50).mean()
+        
+        df["DIST_SMA20"] = (close - df["SMA20"]) / df["SMA20"].replace(0, np.nan)
+        df["DIST_SMA50"] = (close - df["SMA50"]) / df["SMA50"].replace(0, np.nan)
+        
+        tr = pd.concat([high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
+        df["ATR"] = tr.rolling(14).mean()
+        df["ATR_RATIO"] = df["ATR"] / close.replace(0, np.nan)
 
-    vol_mean = vol.rolling(20).mean()
-    vol_std = vol.rolling(20).std().replace(0, np.nan)
-    df["VOL_Z"] = (vol - vol_mean) / vol_std
-    df["TARGET_5D"] = close.shift(-5) / close - 1
+        vol_mean = vol.rolling(20).mean()
+        vol_std = vol.rolling(20).std().replace(0, np.nan)
+        df["VOL_Z"] = (vol - vol_mean) / vol_std
+        
+        df["TARGET_5D"] = (close.shift(-5) / close.replace(0, np.nan)) - 1
 
-    features = ["RET_1", "RET_5", "RET_20", "DIST_SMA20", "DIST_SMA50", "ATR_RATIO", "VOL_Z"]
-    dataset = df.dropna(subset=features + ["TARGET_5D"])
+        features = ["RET_1", "RET_5", "RET_20", "DIST_SMA20", "DIST_SMA50", "ATR_RATIO", "VOL_Z"]
+        
+        # Forward fill to patch missing single-day feature calculation bugs, then fillna(0)
+        for f in features:
+            df[f] = df[f].ffill().fillna(0)
 
-    if len(dataset) < 100: return None
+        # Drop only rows where TARGET_5D is missing (the last 5 days)
+        dataset = df.dropna(subset=["TARGET_5D"]).copy()
 
-    X = dataset[features]
-    y = dataset["TARGET_5D"]
+        if len(dataset) < 40: return None
 
-    gbr = GradientBoostingRegressor(n_estimators=100, learning_rate=0.03, max_depth=4, random_state=42)
-    gbr.fit(X, y)
+        X = dataset[features]
+        y = dataset["TARGET_5D"]
 
-    rf = RandomForestRegressor(n_estimators=80, max_depth=5, random_state=42, n_jobs=-1)
-    rf.fit(X, y)
+        gbr = GradientBoostingRegressor(n_estimators=100, learning_rate=0.03, max_depth=4, random_state=42)
+        gbr.fit(X, y)
 
-    latest_features = df[features].iloc[[-1]].dropna()
-    if latest_features.empty: return None
+        rf = RandomForestRegressor(n_estimators=80, max_depth=5, random_state=42, n_jobs=-1)
+        rf.fit(X, y)
 
-    pred_gbr = gbr.predict(latest_features)[0]
-    pred_rf = rf.predict(latest_features)[0]
-    
-    expected_5d_ret = (0.65 * pred_gbr) + (0.35 * pred_rf)
-    predicted_price = float(close.iloc[-1]) * (1 + expected_5d_ret)
-    
-    disagreement = abs(pred_gbr - pred_rf)
-    confidence = max(40, min(92, int(85 - (disagreement * 400))))
+        # Get latest day's features (which are valid, even though target_5d is NaN here)
+        latest_features = df[features].iloc[[-1]]
+        
+        pred_gbr = gbr.predict(latest_features)[0]
+        pred_rf = rf.predict(latest_features)[0]
+        
+        expected_5d_ret = (0.65 * pred_gbr) + (0.35 * pred_rf)
+        predicted_price = float(close.iloc[-1]) * (1 + expected_5d_ret)
+        
+        disagreement = abs(pred_gbr - pred_rf)
+        confidence = max(40, min(92, int(85 - (disagreement * 400))))
 
-    return {
-        "expected_return_pct": expected_5d_ret * 100,
-        "predicted_target": predicted_price,
-        "confidence": confidence,
-        "model_type": "Institutional Dual Ensemble (GBR + RF)"
-    }
-
+        return {
+            "expected_return_pct": expected_5d_ret * 100,
+            "predicted_target": predicted_price,
+            "confidence": confidence,
+            "model_type": "Institutional Dual Ensemble (GBR + RF)"
+        }
+    except Exception:
+        return None
 
 # ============================================================
 # APP UI & NAVIGATION
@@ -321,16 +359,17 @@ if bulk_data.empty:
     st.error("Market data feeds are temporarily unreachable. Please refresh.")
     st.stop()
 
+# Extract universally safe metrics using custom helper
+closes = get_price_df(bulk_data, "Close")
+highs = get_price_df(bulk_data, "High")
+lows = get_price_df(bulk_data, "Low")
+
 # ============================================================
 # VIEW 1: INSTITUTIONAL CONSENSUS MATRIX
 # ============================================================
 if nav_mode == "🏆 Institutional Consensus Matrix":
     st.title("🏆 Institutional Consensus Matrix")
     st.markdown('<p style="color:#94a3b8;">Audits Indian large caps across 5 core quantitative methodologies. Includes explicit Buy/Sell/Avoid signals based on technical alignment and institutional scoring.</p>', unsafe_allow_html=True)
-
-    closes = bulk_data["Close"]
-    highs = bulk_data["High"]
-    lows = bulk_data["Low"]
 
     matrix_records = []
     
@@ -339,19 +378,19 @@ if nav_mode == "🏆 Institutional Consensus Matrix":
         c = closes[s].dropna()
         h = highs[s].dropna()
         l = lows[s].dropna()
-        if len(c) < 180: continue
+        if len(c) < 100: continue
         
         cmp = float(c.iloc[-1])
         sma50 = float(c.rolling(50).mean().iloc[-1])
-        sma150 = float(c.rolling(150).mean().iloc[-1])
-        sma200 = float(c.rolling(200).mean().iloc[-1])
+        sma150 = float(c.rolling(150).mean().iloc[-1]) if len(c) > 150 else cmp
+        sma200 = float(c.rolling(200).mean().iloc[-1]) if len(c) > 200 else cmp
         high52 = float(h.tail(252).max())
         low52 = float(l.tail(252).min())
         
         is_stage2 = (cmp > sma150) and (cmp > sma200) and (sma150 > sma200) and (cmp > sma50) and (cmp >= 1.25 * low52) and (cmp >= 0.75 * high52)
         
-        pivot_20d = float(h.iloc[-21:-1].max())
-        atr14 = float((h - l).rolling(14).mean().iloc[-1])
+        pivot_20d = float(h.iloc[-21:-1].max()) if len(h) >= 21 else cmp
+        atr14 = float((h - l).rolling(14).mean().iloc[-1]) if len(h) >= 14 else (cmp * 0.02)
         
         fund = get_fundamental_metrics(s)
         scores = evaluate_institutional_models(fund, {"is_stage2": is_stage2})
@@ -364,7 +403,6 @@ if nav_mode == "🏆 Institutional Consensus Matrix":
         target_2 = round(entry + (2.0 * risk), 2)
         target_3 = round(entry + (3.0 * risk), 2)
 
-        # Generate Explicit Signal
         if is_stage2 and scores["Composite"] >= 65:
             signal_out = "BUY"
         elif cmp < sma200 or scores["Composite"] < 40:
@@ -374,8 +412,7 @@ if nav_mode == "🏆 Institutional Consensus Matrix":
         else:
             signal_out = "WATCH"
             
-        # Get AI Prediction Accuracy
-        raw_df = bulk_data.xs(s, axis=1, level=1) if isinstance(bulk_data.columns, pd.MultiIndex) else bulk_data
+        raw_df = get_stock_df(bulk_data, s)
         ai_res = run_advanced_ai_model(raw_df)
         pred_acc = ai_res["confidence"] if ai_res else 0
 
@@ -460,12 +497,15 @@ elif nav_mode == "⚡ 5-Second Real-Time Pulse & AI":
     
     selected_stock = st.selectbox("Select Active Stock to Stream", [s.replace(".NS", "") for s in WATCHLIST])
     ticker_sym = f"{selected_stock}.NS"
-    raw_df = bulk_data.xs(ticker_sym, axis=1, level=1) if isinstance(bulk_data.columns, pd.MultiIndex) else bulk_data
+    raw_df = get_stock_df(bulk_data, ticker_sym)
 
     @st.fragment(run_every="5s")
     def live_stream_widget(symbol, t_symbol, hist_data):
         quote_data = get_live_quote(t_symbol)
-        last_close = float(hist_data["Close"].dropna().iloc[-1])
+        
+        # safely handle empty close series
+        close_series = hist_data["Close"].dropna()
+        last_close = float(close_series.iloc[-1]) if not close_series.empty else 0.0
         
         if quote_data:
             cmp = quote_data["price"]
@@ -524,7 +564,8 @@ elif nav_mode == "⚡ 5-Second Real-Time Pulse & AI":
     c1, c2 = st.columns([2, 1])
     
     with c1:
-        st.line_chart(raw_df["Close"].dropna().tail(180))
+        if "Close" in raw_df.columns:
+            st.line_chart(raw_df["Close"].dropna().tail(180))
         
     with c2:
         st.subheader("📰 Recent News & Catalysts")
@@ -547,107 +588,127 @@ elif nav_mode == "⚡ 5-Second Real-Time Pulse & AI":
 # ============================================================
 elif nav_mode == "🔍 Single Stock Target Diagnosis":
     st.title("🔍 Tactical Setup & Graphical Entry/Exit Radar")
-    selected_sym = st.selectbox("Select NSE Security", [s.replace(".NS", "") for s in WATCHLIST])
+    
+    col_a, col_b = st.columns([3, 1])
+    with col_a:
+        selected_sym = st.selectbox("Select NSE Security", [s.replace(".NS", "") for s in WATCHLIST])
+    with col_b:
+        start_date = st.date_input("Chart Start Date", datetime.now() - timedelta(days=180))
+        
     ticker_sym = f"{selected_sym}.NS"
+    raw_df = get_stock_df(bulk_data, ticker_sym)
     
-    c = bulk_data["Close"][ticker_sym].dropna()
-    h = bulk_data["High"][ticker_sym].dropna()
-    l = bulk_data["Low"][ticker_sym].dropna()
+    c = raw_df.get("Close", pd.Series(dtype=float)).dropna()
+    h = raw_df.get("High", c).dropna()
+    l = raw_df.get("Low", c).dropna()
     
-    cmp = float(c.iloc[-1])
-    sma200 = float(c.rolling(200).mean().iloc[-1])
-    pivot_20d = float(h.iloc[-21:-1].max())
-    dist_pivot = ((cmp - pivot_20d) / pivot_20d) * 100
-    
-    tr = pd.concat([h - l, (h - c.shift()).abs(), (l - c.shift()).abs()], axis=1).max(axis=1)
-    atr14 = float(tr.rolling(14).mean().iloc[-1])
-    
-    entry = pivot_20d
-    
-    if cmp >= pivot_20d and dist_pivot <= 3.5 and cmp > sma200:
-        status_text = "BUY (Breakout Confirmed)"
-        entry = cmp
-    elif -4.5 <= dist_pivot <= 0.5 and cmp > sma200:
-        status_text = "WATCH (VCP Tightening)"
-        entry = round(pivot_20d * 1.002, 2)
-    elif cmp < sma200:
-        status_text = "SELL (Downtrend Structure)"
-    else:
-        status_text = "AVOID (Extended or Choppy)"
-
-    # Calculate Strict Risk Multiples
-    stop = round(max(entry * 0.94, entry - (1.4 * atr14)), 2)
-    risk = entry - stop
-    target_1 = round(entry + (1.0 * risk), 2)
-    target_2 = round(entry + (2.0 * risk), 2)
-    target_3 = round(entry + (3.0 * risk), 2)
-
-    # Calculate Prediction Accuracy
-    raw_df = bulk_data.xs(ticker_sym, axis=1, level=1) if isinstance(bulk_data.columns, pd.MultiIndex) else bulk_data
-    ai_res = run_advanced_ai_model(raw_df)
-    accuracy_text = f"{ai_res['confidence']}%" if ai_res else "N/A"
-
-    st.markdown(f"### Technical Signal: {get_signal_badge(status_text)} &nbsp;|&nbsp; AI Prediction Accuracy: <span style='color:#fbbf24'>{accuracy_text}</span>", unsafe_allow_html=True)
-
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Optimal Entry", money(entry))
-    c2.metric("Hard Stop Loss", money(stop), "-Risk Managed")
-    c3.metric("Target 1", money(target_1), "+1.0R Reward")
-    c4.metric("Target 2", money(target_2), "+2.0R Reward")
-    c5.metric("Target 3", money(target_3), "+3.0R Reward")
-    
-    st.markdown("---")
-    
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        chart_df = pd.DataFrame({
-            "Close": c,
-            "50 SMA": c.rolling(50).mean(),
-            "200 SMA": c.rolling(200).mean()
-        }).tail(120)
+    if len(c) > 20:
+        cmp = float(c.iloc[-1])
+        sma200 = float(c.rolling(200).mean().iloc[-1]) if len(c) >= 200 else cmp
+        pivot_20d = float(h.iloc[-21:-1].max()) if len(h) >= 21 else cmp
+        dist_pivot = ((cmp - pivot_20d) / pivot_20d) * 100 if pivot_20d > 0 else 0
         
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df["Close"], mode='lines', name='Price', line=dict(color='#38bdf8', width=3)))
-        fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df["50 SMA"], mode='lines', name='50 SMA', line=dict(color='#a78bfa', width=1.5, dash='dot')))
-        fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df["200 SMA"], mode='lines', name='200 SMA', line=dict(color='#f472b6', width=1.5, dash='dot')))
+        tr = pd.concat([h - l, (h - c.shift()).abs(), (l - c.shift()).abs()], axis=1).max(axis=1)
+        atr14 = float(tr.rolling(14).mean().iloc[-1]) if len(tr) >= 14 else (cmp * 0.02)
         
-        if "BUY" in status_text or "WATCH" in status_text:
-            fig.add_hline(y=entry, line_dash="solid", line_color="#fbbf24", line_width=2, annotation_text=f"ENTRY: ₹{entry:.2f}", annotation_position="top left", annotation_font_color="#fbbf24")
-            fig.add_hline(y=target_1, line_dash="dash", line_color="#a7f3d0", line_width=1.5, annotation_text=f"T1: ₹{target_1:.2f}", annotation_position="bottom right", annotation_font_color="#a7f3d0")
-            fig.add_hline(y=target_2, line_dash="dash", line_color="#34d399", line_width=1.5, annotation_text=f"T2: ₹{target_2:.2f}", annotation_position="bottom right", annotation_font_color="#34d399")
-            fig.add_hline(y=target_3, line_dash="dash", line_color="#059669", line_width=2, annotation_text=f"T3: ₹{target_3:.2f}", annotation_position="bottom right", annotation_font_color="#059669")
-            fig.add_hline(y=stop, line_dash="dash", line_color="#f87171", line_width=2, annotation_text=f"STOP LOSS: ₹{stop:.2f}", annotation_position="top right", annotation_font_color="#f87171")
-            
-            fig.add_hrect(y0=entry, y1=target_3, fillcolor="rgba(52, 211, 153, 0.1)", layer="below", line_width=0)
-            fig.add_hrect(y0=stop, y1=entry, fillcolor="rgba(248, 113, 113, 0.1)", layer="below", line_width=0)
-
-        fig.update_layout(
-            template="plotly_dark",
-            plot_bgcolor="rgba(15, 23, 42, 1)",
-            paper_bgcolor="rgba(15, 23, 42, 1)",
-            margin=dict(l=20, r=20, t=40, b=20),
-            height=450,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            xaxis_title="Date",
-            yaxis_title="Price (INR)"
-        )
+        entry = pivot_20d
         
-        st.plotly_chart(fig, use_container_width=True)
-        if "BUY" in status_text or "WATCH" in status_text:
-            st.caption("🟢 **Green Zone:** Expected Profit Trajectory (Up to T3) | 🔴 **Red Zone:** Max Risk Tolerance Buffer")
-            
-    with col2:
-        st.subheader("📰 Recent News & Catalysts")
-        news_items = get_news(selected_sym)
-        if news_items:
-            for item in news_items[:5]:
-                st.markdown(f"""
-                <div class="news-box">
-                    <div style="font-weight:700; font-size:13px; color:#f8fafc;">{item['title']}</div>
-                    <div style="font-size:11px; color:#94a3b8; margin-top:4px;">{item['date']}</div>
-                    <a href="{item['link']}" target="_blank" style="color:#38bdf8; font-size:12px; font-weight:600; text-decoration:none;">Read full article →</a>
-                </div>
-                """, unsafe_allow_html=True)
+        if cmp >= pivot_20d and dist_pivot <= 3.5 and cmp > sma200:
+            status_text = "BUY (Breakout Confirmed)"
+            entry = cmp
+        elif -4.5 <= dist_pivot <= 0.5 and cmp > sma200:
+            status_text = "WATCH (VCP Tightening)"
+            entry = round(pivot_20d * 1.002, 2)
+        elif cmp < sma200:
+            status_text = "SELL (Downtrend Structure)"
         else:
-            st.caption("No recent news found for this stock.")
+            status_text = "AVOID (Extended or Choppy)"
+    
+        stop = round(max(entry * 0.94, entry - (1.4 * atr14)), 2)
+        risk = entry - stop
+        target_1 = round(entry + (1.0 * risk), 2)
+        target_2 = round(entry + (2.0 * risk), 2)
+        target_3 = round(entry + (3.0 * risk), 2)
+    
+        ai_res = run_advanced_ai_model(raw_df)
+        accuracy_text = f"{ai_res['confidence']}%" if ai_res else "N/A"
+    
+        st.markdown(f"### Technical Signal: {get_signal_badge(status_text)} &nbsp;|&nbsp; AI Prediction Accuracy: <span style='color:#fbbf24'>{accuracy_text}</span>", unsafe_allow_html=True)
+    
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Optimal Entry", money(entry))
+        c2.metric("Hard Stop Loss", money(stop), "-Risk Managed")
+        c3.metric("Target 1", money(target_1), "+1.0R Reward")
+        c4.metric("Target 2", money(target_2), "+2.0R Reward")
+        c5.metric("Target 3", money(target_3), "+3.0R Reward")
+        
+        st.markdown("---")
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            chart_df = pd.DataFrame({
+                "Open": raw_df.get("Open", c).dropna(),
+                "High": h,
+                "Low": l,
+                "Close": c,
+                "50 SMA": c.rolling(50).mean(),
+                "200 SMA": c.rolling(200).mean()
+            })
+            
+            chart_df = chart_df[chart_df.index.tz_localize(None) >= pd.to_datetime(start_date)]
+            
+            fig = go.Figure()
+            
+            fig.add_trace(go.Candlestick(x=chart_df.index,
+                                         open=chart_df['Open'],
+                                         high=chart_df['High'],
+                                         low=chart_df['Low'],
+                                         close=chart_df['Close'],
+                                         name='Price Action'))
+                                         
+            fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df["50 SMA"], mode='lines', name='50 SMA', line=dict(color='#a78bfa', width=1.5, dash='dot')))
+            fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df["200 SMA"], mode='lines', name='200 SMA', line=dict(color='#f472b6', width=1.5, dash='dot')))
+            
+            if "BUY" in status_text or "WATCH" in status_text:
+                fig.add_hline(y=entry, line_dash="solid", line_color="#fbbf24", line_width=2, annotation_text=f"ENTRY: ₹{entry:.2f}", annotation_position="top left", annotation_font_color="#fbbf24")
+                fig.add_hline(y=target_1, line_dash="dash", line_color="#a7f3d0", line_width=1.5, annotation_text=f"T1: ₹{target_1:.2f}", annotation_position="bottom right", annotation_font_color="#a7f3d0")
+                fig.add_hline(y=target_2, line_dash="dash", line_color="#34d399", line_width=1.5, annotation_text=f"T2: ₹{target_2:.2f}", annotation_position="bottom right", annotation_font_color="#34d399")
+                fig.add_hline(y=target_3, line_dash="dash", line_color="#059669", line_width=2, annotation_text=f"T3: ₹{target_3:.2f}", annotation_position="bottom right", annotation_font_color="#059669")
+                fig.add_hline(y=stop, line_dash="dash", line_color="#f87171", line_width=2, annotation_text=f"STOP LOSS: ₹{stop:.2f}", annotation_position="top right", annotation_font_color="#f87171")
+                
+                fig.add_hrect(y0=entry, y1=target_3, fillcolor="rgba(52, 211, 153, 0.1)", layer="below", line_width=0)
+                fig.add_hrect(y0=stop, y1=entry, fillcolor="rgba(248, 113, 113, 0.1)", layer="below", line_width=0)
+    
+            fig.update_layout(
+                template="plotly_dark",
+                plot_bgcolor="rgba(15, 23, 42, 1)",
+                paper_bgcolor="rgba(15, 23, 42, 1)",
+                margin=dict(l=20, r=20, t=40, b=20),
+                height=450,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                xaxis_title="Date",
+                yaxis_title="Price (INR)",
+                xaxis_rangeslider_visible=False
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            if "BUY" in status_text or "WATCH" in status_text:
+                st.caption("🟢 **Green Zone:** Expected Profit Trajectory (Up to T3) | 🔴 **Red Zone:** Max Risk Tolerance Buffer")
+                
+        with col2:
+            st.subheader("📰 Recent News & Catalysts")
+            news_items = get_news(selected_sym)
+            if news_items:
+                for item in news_items[:5]:
+                    st.markdown(f"""
+                    <div class="news-box">
+                        <div style="font-weight:700; font-size:13px; color:#f8fafc;">{item['title']}</div>
+                        <div style="font-size:11px; color:#94a3b8; margin-top:4px;">{item['date']}</div>
+                        <a href="{item['link']}" target="_blank" style="color:#38bdf8; font-size:12px; font-weight:600; text-decoration:none;">Read full article →</a>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.caption("No recent news found for this stock.")
+    else:
+        st.error("Not enough historical data available to generate charting signals for this stock.")
