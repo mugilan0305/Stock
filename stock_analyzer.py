@@ -420,6 +420,16 @@ def calculate_indicators(data):
         * 100
     )
 
+    # Average True Range (ATR) for dynamic stop-loss levels
+    high_low = df["High"] - df["Low"]
+    high_close = (df["High"] - df["Close"].shift(1)).abs()
+    low_close = (df["Low"] - df["Close"].shift(1)).abs()
+    true_range = pd.concat(
+        [high_low, high_close, low_close],
+        axis=1
+    ).max(axis=1)
+    df["ATR"] = true_range.rolling(14).mean()
+
     return df
 
 
@@ -803,8 +813,99 @@ def get_news_sentiment(ticker_symbol):
 
 
 # ============================================================
-# PREDICTION TIMELINE
+# PREDICTION REASON + TRADE LEVELS
 # ============================================================
+
+def build_prediction_reason(df, prediction, news_label):
+    latest = df.iloc[-1]
+    reasons = []
+
+    # Trend
+    if pd.notna(latest["MA20"]):
+        if latest["Close"] > latest["MA20"]:
+            reasons.append("price is above the 20-day moving average")
+        else:
+            reasons.append("price is below the 20-day moving average")
+
+    if pd.notna(latest["MA50"]):
+        if latest["MA20"] > latest["MA50"]:
+            reasons.append("the short-term trend is stronger than the 50-day trend")
+        else:
+            reasons.append("the short-term trend is weaker than the 50-day trend")
+
+    # RSI
+    rsi = latest["RSI"]
+    if pd.notna(rsi):
+        if rsi >= 60:
+            reasons.append(f"RSI at {rsi:.1f} shows positive momentum")
+        elif rsi <= 40:
+            reasons.append(f"RSI at {rsi:.1f} shows weak momentum")
+        else:
+            reasons.append(f"RSI at {rsi:.1f} is in a relatively neutral zone")
+
+    # MACD
+    if pd.notna(latest["MACD"]) and pd.notna(latest["MACD_SIGNAL"]):
+        if latest["MACD"] > latest["MACD_SIGNAL"]:
+            reasons.append("MACD is above its signal line, supporting upside momentum")
+        else:
+            reasons.append("MACD is below its signal line, limiting upside momentum")
+
+    # News
+    if news_label == "Positive":
+        reasons.append("recent news sentiment is positive")
+    elif news_label == "Negative":
+        reasons.append("recent news sentiment is negative")
+    elif news_label == "Neutral":
+        reasons.append("recent news sentiment is mixed or neutral")
+
+    # Model direction
+    change = prediction["change_pct"]
+    if change > 0:
+        reasons.append(f"the model projects approximately {change:+.2f}% upside over this horizon")
+    elif change < 0:
+        reasons.append(f"the model projects approximately {change:+.2f}% downside over this horizon")
+    else:
+        reasons.append("the model projects limited price movement over this horizon")
+
+    # Keep the explanation readable
+    return "; ".join(reasons[:6]) + "."
+
+
+def calculate_trade_levels(df, current_price, target_price):
+    latest = df.iloc[-1]
+    atr = latest.get("ATR", np.nan)
+
+    if pd.isna(atr) or atr <= 0:
+        atr = current_price * 0.02
+
+    recent_support = df["Low"].rolling(20).min().iloc[-1]
+    recent_resistance = df["High"].rolling(20).max().iloc[-1]
+
+    if target_price >= current_price:
+        atr_stop = current_price - (1.5 * atr)
+        support_stop = recent_support * 0.98 if pd.notna(recent_support) else atr_stop
+        stop_loss = max(atr_stop, support_stop)
+        stop_loss = min(stop_loss, current_price * 0.99)
+    else:
+        atr_stop = current_price + (1.5 * atr)
+        resistance_stop = recent_resistance * 1.02 if pd.notna(recent_resistance) else atr_stop
+        stop_loss = min(atr_stop, resistance_stop)
+        stop_loss = max(stop_loss, current_price * 1.01)
+
+    risk = abs(current_price - stop_loss)
+    reward = abs(target_price - current_price)
+    risk_reward = reward / risk if risk > 0 else 0
+
+    target_pct = ((target_price - current_price) / current_price) * 100
+    stop_pct = ((stop_loss - current_price) / current_price) * 100
+
+    return {
+        "stop_loss": float(stop_loss),
+        "risk_reward": float(risk_reward),
+        "target_pct": float(target_pct),
+        "stop_pct": float(stop_pct)
+    }
+
 
 def prediction_timeline(predictions):
 
@@ -812,7 +913,6 @@ def prediction_timeline(predictions):
         return []
 
     today = datetime.now()
-
     result = []
 
     for label, item in predictions.items():
@@ -828,8 +928,11 @@ def prediction_timeline(predictions):
             "Estimated Date": estimated_date.strftime(
                 "%d %b %Y"
             ),
-            "Predicted Price": item["price"],
-            "Expected Change": item["change_pct"]
+            "Target Price": item["price"],
+            "Expected Change": item["change_pct"],
+            "Stop Loss": item.get("stop_loss"),
+            "Risk / Reward": item.get("risk_reward"),
+            "Reason": item.get("reason", "")
         })
 
     return result
@@ -868,6 +971,21 @@ def analyze_stock(symbol, market):
     news = get_news_sentiment(
         ticker_symbol
     )
+
+    # Add a transparent explanation and trade levels to each horizon.
+    if predictions:
+        for label, prediction in predictions.items():
+            trade_levels = calculate_trade_levels(
+                indicators,
+                current_price,
+                prediction["price"]
+            )
+            prediction.update(trade_levels)
+            prediction["reason"] = build_prediction_reason(
+                indicators,
+                prediction,
+                news["label"]
+            )
 
     return {
         "symbol": symbol,
@@ -1201,19 +1319,20 @@ if predictions:
 
     p1, p2, p3 = st.columns(3)
 
-    prediction_items = list(
-        predictions.items()
-    )
+    prediction_items = list(predictions.items())
 
-    for column, (
-        label,
-        prediction
-    ) in zip(
+    for column, (label, prediction) in zip(
         [p1, p2, p3],
         prediction_items
     ):
 
         change = prediction["change_pct"]
+        stop_loss = prediction.get("stop_loss")
+        risk_reward = prediction.get("risk_reward", 0)
+        reason = prediction.get(
+            "reason",
+            "Prediction is based on the technical and market factors shown below."
+        )
 
         change_class = (
             "positive"
@@ -1233,19 +1352,16 @@ if predictions:
 
         estimated_date = (
             datetime.now()
-            + timedelta(
-                days=prediction["days"]
-            )
-        ).strftime(
-            "%d %b %Y"
-        )
+            + timedelta(days=prediction["days"])
+        ).strftime("%d %b %Y")
+
+        target_label = "Target" if change >= 0 else "Downside Target"
 
         with column:
 
             st.markdown(
                 f"""
                 <div class="prediction-card">
-
                     <div class="small-text">
                         {label}
                     </div>
@@ -1255,15 +1371,39 @@ if predictions:
                     </div>
 
                     <div class="{change_class}">
-                        {direction}
-                        {change:+.2f}%
+                        {direction} {change:+.2f}%
                     </div>
 
-                    <div class="small-text">
-                        Estimated timeframe:
-                        {estimated_date}
+                    <div style="margin-top:14px; text-align:left;">
+                        <div class="small-text">{target_label}</div>
+                        <div style="font-size:17px;font-weight:700;color:#f8fafc;">
+                            ₹{prediction["price"]:,.2f}
+                        </div>
+
+                        <div class="small-text" style="margin-top:10px;">Stop Loss</div>
+                        <div style="font-size:17px;font-weight:700;color:#ef4444;">
+                            ₹{stop_loss:,.2f}
+                        </div>
+
+                        <div class="small-text" style="margin-top:10px;">Risk / Reward</div>
+                        <div style="font-size:17px;font-weight:700;color:#60a5fa;">
+                            1 : {risk_reward:.2f}
+                        </div>
+
+                        <div class="small-text" style="margin-top:12px;">Estimated date</div>
+                        <div style="font-size:14px;color:#f8fafc;">
+                            {estimated_date}
+                        </div>
                     </div>
 
+                    <div style="margin-top:15px;text-align:left;">
+                        <div style="color:#f8fafc;font-size:14px;font-weight:700;margin-bottom:5px;">
+                            Why this prediction?
+                        </div>
+                        <div style="color:#94a3b8;font-size:13px;line-height:1.55;">
+                            {reason}
+                        </div>
+                    </div>
                 </div>
                 """,
                 unsafe_allow_html=True
@@ -1285,22 +1425,22 @@ timeline = prediction_timeline(
 
 if timeline:
 
-    timeline_df = pd.DataFrame(
-        timeline
+    timeline_df = pd.DataFrame(timeline)
+
+    timeline_df["Target Price"] = timeline_df["Target Price"].map(
+        lambda x: f"₹{x:,.2f}"
     )
 
-    timeline_df["Predicted Price"] = (
-        timeline_df["Predicted Price"]
-        .map(
-            lambda x: f"₹{x:,.2f}"
-        )
+    timeline_df["Expected Change"] = timeline_df["Expected Change"].map(
+        lambda x: f"{x:+.2f}%"
     )
 
-    timeline_df["Expected Change"] = (
-        timeline_df["Expected Change"]
-        .map(
-            lambda x: f"{x:+.2f}%"
-        )
+    timeline_df["Stop Loss"] = timeline_df["Stop Loss"].map(
+        lambda x: f"₹{x:,.2f}"
+    )
+
+    timeline_df["Risk / Reward"] = timeline_df["Risk / Reward"].map(
+        lambda x: f"1 : {x:.2f}"
     )
 
     st.dataframe(
@@ -1650,6 +1790,12 @@ export_df = pd.DataFrame({
     "MA20": [latest["MA20"]],
     "MA50": [latest["MA50"]],
     "News Sentiment": [news["label"]],
+    "1D Target": [predictions.get("1 Trading Day", {}).get("price") if predictions else None],
+    "5D Target": [predictions.get("5 Trading Days", {}).get("price") if predictions else None],
+    "20D Target": [predictions.get("20 Trading Days", {}).get("price") if predictions else None],
+    "1D Stop Loss": [predictions.get("1 Trading Day", {}).get("stop_loss") if predictions else None],
+    "5D Stop Loss": [predictions.get("5 Trading Days", {}).get("stop_loss") if predictions else None],
+    "20D Stop Loss": [predictions.get("20 Trading Days", {}).get("stop_loss") if predictions else None],
     "Updated": [updated_time]
 })
 
