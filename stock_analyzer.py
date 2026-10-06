@@ -20,7 +20,7 @@ warnings.filterwarnings("ignore")
 
 st.set_page_config(
     page_title="Institutional Quantitative Terminal",
-    page_icon="🏛️",
+    page_icon="🏛️️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -30,9 +30,10 @@ st.markdown("""
 .stApp { background: #0b1120; color: #f8fafc; }
 .block-container { max-width: 1440px; padding-top: 1.2rem; padding-bottom: 3rem; }
 .card { background: #111827; border: 1px solid #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
-.badge-buy { background: #064e3b; color: #34d399; font-weight: 800; padding: 6px 12px; border-radius: 6px; font-size: 13px; }
-.badge-watch { background: #451a03; color: #fbbf24; font-weight: 800; padding: 6px 12px; border-radius: 6px; font-size: 13px; }
-.badge-avoid { background: #450a0a; color: #f87171; font-weight: 800; padding: 6px 12px; border-radius: 6px; font-size: 13px; }
+.badge-buy { background: #064e3b; color: #34d399; font-weight: 800; padding: 6px 12px; border-radius: 6px; font-size: 13px; text-align: center; }
+.badge-watch { background: #451a03; color: #fbbf24; font-weight: 800; padding: 6px 12px; border-radius: 6px; font-size: 13px; text-align: center; }
+.badge-avoid { background: #27272a; color: #a1a1aa; font-weight: 800; padding: 6px 12px; border-radius: 6px; font-size: 13px; text-align: center; }
+.badge-sell { background: #450a0a; color: #f87171; font-weight: 800; padding: 6px 12px; border-radius: 6px; font-size: 13px; text-align: center; }
 .metric-val { font-size: 20px; font-weight: 800; color: #f8fafc; margin-top: 4px; }
 .metric-lbl { font-size: 11px; color: #94a3b8; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; }
 .live-badge { display: inline-flex; align-items: center; background: #0f2e1b; border: 1px solid #10b981; color: #34d399; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 12px; }
@@ -42,7 +43,6 @@ st.markdown("""
 .positive { color: #22c55e; font-weight: 700; }
 .negative { color: #ef4444; font-weight: 700; }
 .top-pick-card { background: linear-gradient(135deg, #1e1b4b 0%, #1e293b 100%); border: 2px solid #818cf8; border-radius: 14px; padding: 22px; margin-bottom: 20px; }
-.reason-box { margin-top: 14px; font-size: 13px; color: #cbd5e1; background: #0a0f1d; padding: 12px 14px; border-radius: 8px; border: 1px solid #1e293b; line-height: 1.6; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -125,14 +125,6 @@ def fetch_all_market_data(tickers):
 # ============================================================
 
 def evaluate_institutional_models(fund_data, tech_data):
-    """
-    Computes distinct scores (0-100) for 5 quantitative institutional archetypes:
-    1. Growth & Scale (High ROE & Revenue Traction)
-    2. Fortress Balance Sheet (Zero Debt & Durable Margin)
-    3. GARP (Quality, Growth, Longevity, PEG)
-    4. Momentum & Acceleration (Margin expansion & Technical Strength)
-    5. Deep Value (Asymmetric Risk / Low PE / FCF Focus)
-    """
     roe = fund_data.get("roe") or 0.0
     de = fund_data.get("debt_to_equity") or 0.0
     margin = fund_data.get("profit_margin") or 0.0
@@ -183,18 +175,13 @@ def evaluate_institutional_models(fund_data, tech_data):
     if roe >= 16: s_value += 20
     if eps_g > 0: s_value += 10
 
-    # Clamping
     s_growth = max(0, min(100, s_growth))
     s_moat = max(0, min(100, s_moat))
     s_garp = max(0, min(100, s_garp))
     s_mom = max(0, min(100, s_mom))
     s_value = max(0, min(100, s_value))
 
-    # Composite Institutional Consensus
-    composite = round(
-        (0.25 * s_growth) + (0.25 * s_moat) + (0.20 * s_garp) + (0.15 * s_mom) + (0.15 * s_value),
-        1
-    )
+    composite = round((0.25 * s_growth) + (0.25 * s_moat) + (0.20 * s_garp) + (0.15 * s_mom) + (0.15 * s_value), 1)
 
     return {
         "Composite": composite,
@@ -204,6 +191,16 @@ def evaluate_institutional_models(fund_data, tech_data):
         "Momentum": s_mom,
         "Deep_Value": s_value
     }
+
+def get_signal_badge(signal_text):
+    if "BUY" in signal_text.upper():
+        return f'<span class="badge-buy">{signal_text}</span>'
+    elif "SELL" in signal_text.upper():
+        return f'<span class="badge-sell">{signal_text}</span>'
+    elif "WATCH" in signal_text.upper():
+        return f'<span class="badge-watch">{signal_text}</span>'
+    else:
+        return f'<span class="badge-avoid">{signal_text}</span>'
 
 # ============================================================
 # APP UI & NAVIGATION
@@ -245,7 +242,7 @@ if bulk_data.empty:
 # ============================================================
 if nav_mode == "🏆 Institutional Consensus Matrix":
     st.title("🏆 Institutional Consensus Matrix")
-    st.markdown('<p style="color:#94a3b8;">Audits Indian large caps across 5 core quantitative methodologies: Growth & Scale, Fortress Balance Sheets, GARP, Momentum, and Deep Value.</p>', unsafe_allow_html=True)
+    st.markdown('<p style="color:#94a3b8;">Audits Indian large caps across 5 core quantitative methodologies. Includes explicit Buy/Sell/Avoid signals based on technical alignment and institutional scoring.</p>', unsafe_allow_html=True)
 
     closes = bulk_data["Close"]
     highs = bulk_data["High"]
@@ -279,9 +276,19 @@ if nav_mode == "🏆 Institutional Consensus Matrix":
         risk_pct = round(((cmp - stop_loss) / cmp) * 100, 2)
         target = round(cmp + (risk_pct * 2.5 / 100 * cmp), 2)
 
+        # Generate Explicit Signal
+        if is_stage2 and scores["Composite"] >= 65:
+            signal_out = "BUY"
+        elif cmp < sma200 or scores["Composite"] < 40:
+            signal_out = "SELL"
+        elif not is_stage2:
+            signal_out = "AVOID"
+        else:
+            signal_out = "WATCH"
+
         matrix_records.append({
             "Symbol": s.replace(".NS", ""),
-            "Ticker": s,
+            "Signal": signal_out,
             "CMP": cmp,
             "Consensus Score": scores["Composite"],
             "Growth & Scale": scores["Growth_Scale"],
@@ -291,13 +298,7 @@ if nav_mode == "🏆 Institutional Consensus Matrix":
             "Deep Value": scores["Deep_Value"],
             "ROE %": fund["roe"],
             "D/E": fund["debt_to_equity"],
-            "P/E": fund["pe"],
-            "PEG": fund["peg"],
-            "Stage 2": "Confirmed" if is_stage2 else "No",
-            "Optimal Entry": cmp if is_stage2 else pivot_20d,
-            "Stop Loss": stop_loss,
-            "Target (2.5R)": target,
-            "Risk %": risk_pct
+            "P/E": fund["pe"]
         })
 
     consensus_df = pd.DataFrame(matrix_records).sort_values(by="Consensus Score", ascending=False).reset_index(drop=True)
@@ -314,32 +315,31 @@ if nav_mode == "🏆 Institutional Consensus Matrix":
                 </div>
                 <div style="text-align:right;">
                     <div style="font-size:28px; font-weight:900; color:#38bdf8;">{top_pick['Consensus Score']} / 100</div>
-                    <span class="badge-buy">Top Aggregate Rating</span>
+                    {get_signal_badge(top_pick['Signal'])}
                 </div>
             </div>
-            <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap:12px; margin-top:18px;">
+            <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; margin-top:18px;">
                 <div><div class="metric-lbl">Current CMP</div><div class="metric-val">{money(top_pick['CMP'])}</div></div>
-                <div><div class="metric-lbl">Optimal Entry</div><div class="metric-val" style="color:#fbbf24;">{money(top_pick['Optimal Entry'])}</div></div>
-                <div><div class="metric-lbl">Stop Loss</div><div class="metric-val" style="color:#f87171;">{money(top_pick['Stop Loss'])}</div></div>
-                <div><div class="metric-lbl">Target (2.5R)</div><div class="metric-val" style="color:#34d399;">{money(top_pick['Target (2.5R)'])}</div></div>
-                <div><div class="metric-lbl">Max Risk %</div><div class="metric-val">{top_pick['Risk %']:.1f}%</div></div>
-            </div>
-            <div style="margin-top:14px; font-size:13px; color:#cbd5e1; background:rgba(0,0,0,0.25); padding:10px 14px; border-radius:8px;">
-                <b>Selection Rationale:</b> Highest aggregate agreement across Growth, Capital Discipline, and Value. Evaluated positively for technical structure with conservative debt leverage ({top_pick['D/E']:.2f}) and sustained ROE ({top_pick['ROE %']:.1f}%).
+                <div><div class="metric-lbl">ROE %</div><div class="metric-val">{top_pick['ROE %']:.1f}%</div></div>
+                <div><div class="metric-lbl">Debt / Equity</div><div class="metric-val">{top_pick['D/E']:.2f}</div></div>
+                <div><div class="metric-lbl">P/E Ratio</div><div class="metric-val">{top_pick['P/E']:.1f}</div></div>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
     st.subheader("📊 Cross-Strategy Comparison Grid")
     
-    display_cols = [
-        "Symbol", "CMP", "Consensus Score", "Growth & Scale", 
-        "Fortress Moat", "GARP", "Momentum", "Deep Value",
-        "ROE %", "D/E", "P/E", "Stage 2"
-    ]
+    # Render table with styling for Signals
+    def highlight_signal(val):
+        if val == 'BUY': return 'color: #34d399; font-weight: bold'
+        elif val == 'SELL': return 'color: #f87171; font-weight: bold'
+        elif val == 'WATCH': return 'color: #fbbf24; font-weight: bold'
+        return 'color: #a1a1aa'
+        
+    styled_df = consensus_df[["Symbol", "Signal", "CMP", "Consensus Score", "Growth & Scale", "Fortress Moat", "GARP", "Momentum", "Deep Value", "ROE %", "D/E", "P/E"]]
     
     st.dataframe(
-        consensus_df[display_cols],
+        styled_df.style.map(highlight_signal, subset=['Signal']),
         column_config={
             "CMP": st.column_config.NumberColumn(format="₹%.2f"),
             "Consensus Score": st.column_config.ProgressColumn(format="%.1f", min_value=0, max_value=100),
@@ -396,7 +396,6 @@ elif nav_mode == "⚡ 5-Second Real-Time Pulse & AI":
 
     live_stream_widget(selected_stock, ticker_sym, raw_df)
 
-    # Gradient Boosted Model Run
     @st.cache_data(ttl=900, show_spinner=False)
     def run_advanced_ai_model(df_stock):
         if len(df_stock) < 180: return None
@@ -418,129 +417,4 @@ elif nav_mode == "⚡ 5-Second Real-Time Pulse & AI":
         df["ATR_RATIO"] = df["ATR"] / close
 
         vol_mean = vol.rolling(20).mean()
-        vol_std = vol.rolling(20).std().replace(0, np.nan)
-        df["VOL_Z"] = (vol - vol_mean) / vol_std
-        df["TARGET_5D"] = close.shift(-5) / close - 1
-
-        features = ["RET_1", "RET_5", "RET_20", "DIST_SMA20", "DIST_SMA50", "ATR_RATIO", "VOL_Z"]
-        dataset = df.dropna(subset=features + ["TARGET_5D"])
-
-        if len(dataset) < 100: return None
-
-        X = dataset[features]
-        y = dataset["TARGET_5D"]
-
-        gbr = GradientBoostingRegressor(n_estimators=100, learning_rate=0.03, max_depth=4, random_state=42)
-        gbr.fit(X, y)
-
-        rf = RandomForestRegressor(n_estimators=80, max_depth=5, random_state=42, n_jobs=-1)
-        rf.fit(X, y)
-
-        latest_features = df[features].iloc[[-1]].dropna()
-        if latest_features.empty: return None
-
-        pred_gbr = gbr.predict(latest_features)[0]
-        pred_rf = rf.predict(latest_features)[0]
-        
-        expected_5d_ret = (0.65 * pred_gbr) + (0.35 * pred_rf)
-        predicted_price = float(close.iloc[-1]) * (1 + expected_5d_ret)
-        
-        disagreement = abs(pred_gbr - pred_rf)
-        confidence = max(40, min(92, int(85 - (disagreement * 400))))
-
-        return {
-            "expected_return_pct": expected_5d_ret * 100,
-            "predicted_target": predicted_price,
-            "confidence": confidence,
-            "model_type": "Institutional Dual Ensemble (GBR + RF)"
-        }
-        
-    st.subheader("🤖 Gradient Boosted Expected Return")
-    with st.spinner("Executing volatility modeling..."):
-        ai_res = run_advanced_ai_model(raw_df)
-
-    if ai_res:
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Predicted 5-Day Target", money(ai_res["predicted_target"]), f"{ai_res['expected_return_pct']:+.2f}% Expected")
-        m2.metric("Ensemble Confidence", f"{ai_res['confidence']}%")
-        m3.metric("Architecture", ai_res["model_type"])
-        st.caption("⚙️ The model merges non-linear Gradient Boosted Trees with Random Forest regularization over structural momentum traits.")
-    else:
-        st.info("Insufficient bar depth to fit dual ensemble.")
-        
-    st.line_chart(raw_df["Close"].dropna().tail(180))
-
-# ============================================================
-# VIEW 3: SINGLE STOCK TARGET DIAGNOSIS
-# ============================================================
-elif nav_mode == "🔍 Single Stock Target Diagnosis":
-    st.title("🔍 Tactical Setup & Graphical Entry/Exit Radar")
-    selected_sym = st.selectbox("Select NSE Security", [s.replace(".NS", "") for s in WATCHLIST])
-    ticker_sym = f"{selected_sym}.NS"
-    
-    c = bulk_data["Close"][ticker_sym].dropna()
-    h = bulk_data["High"][ticker_sym].dropna()
-    l = bulk_data["Low"][ticker_sym].dropna()
-    
-    cmp = float(c.iloc[-1])
-    pivot_20d = float(h.iloc[-21:-1].max())
-    dist_pivot = ((cmp - pivot_20d) / pivot_20d) * 100
-    
-    tr = pd.concat([h - l, (h - c.shift()).abs(), (l - c.shift()).abs()], axis=1).max(axis=1)
-    atr14 = float(tr.rolling(14).mean().iloc[-1])
-    
-    status = "WATCH"
-    entry, stop, target = pivot_20d, round(pivot_20d * 0.94, 2), round(pivot_20d * 1.15, 2)
-    
-    if cmp >= pivot_20d and dist_pivot <= 3.5:
-        status = "BREAKOUT CONFIRMED"
-        entry = cmp
-        stop = round(max(cmp * 0.94, cmp - (1.4 * atr14)), 2)
-        risk_pct = ((entry - stop) / entry) * 100
-        target = round(entry + (risk_pct * 2.5 / 100 * entry), 2)
-    elif -4.5 <= dist_pivot <= 0.5:
-        status = "VOLATILITY COMPRESSION"
-        entry = round(pivot_20d * 1.002, 2)
-        stop = round(entry * 0.945, 2)
-        risk_pct = ((entry - stop) / entry) * 100
-        target = round(entry + (risk_pct * 2.5 / 100 * entry), 2)
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Tactical Status", status)
-    c2.metric("Optimal Entry", money(entry))
-    c3.metric("Hard Stop Loss", money(stop), "-Risk Managed")
-    c4.metric("Target Level", money(target), "+2.5R Reward")
-    
-    st.markdown("---")
-    
-    chart_df = pd.DataFrame({
-        "Close": c,
-        "50 SMA": c.rolling(50).mean(),
-        "200 SMA": c.rolling(200).mean()
-    }).tail(120)
-    
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df["Close"], mode='lines', name='Price', line=dict(color='#38bdf8', width=3)))
-    fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df["50 SMA"], mode='lines', name='50 SMA', line=dict(color='#a78bfa', width=1.5, dash='dot')))
-    fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df["200 SMA"], mode='lines', name='200 SMA', line=dict(color='#f472b6', width=1.5, dash='dot')))
-    
-    fig.add_hline(y=entry, line_dash="solid", line_color="#fbbf24", line_width=2, annotation_text=f"ENTRY: ₹{entry:.2f}", annotation_position="top left", annotation_font_color="#fbbf24")
-    fig.add_hline(y=target, line_dash="dash", line_color="#34d399", line_width=2, annotation_text=f"TARGET: ₹{target:.2f}", annotation_position="bottom right", annotation_font_color="#34d399")
-    fig.add_hline(y=stop, line_dash="dash", line_color="#f87171", line_width=2, annotation_text=f"STOP LOSS: ₹{stop:.2f}", annotation_position="top right", annotation_font_color="#f87171")
-    
-    fig.add_hrect(y0=entry, y1=target, fillcolor="rgba(52, 211, 153, 0.1)", layer="below", line_width=0)
-    fig.add_hrect(y0=stop, y1=entry, fillcolor="rgba(248, 113, 113, 0.1)", layer="below", line_width=0)
-
-    fig.update_layout(
-        template="plotly_dark",
-        plot_bgcolor="rgba(15, 23, 42, 1)",
-        paper_bgcolor="rgba(15, 23, 42, 1)",
-        margin=dict(l=20, r=20, t=40, b=20),
-        height=500,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        xaxis_title="Date",
-        yaxis_title="Price (INR)"
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-    st.caption("🟢 **Green Zone:** Expected Profit Trajectory | 🔴 **Red Zone:** Max Risk Tolerance Buffer")
+        vol_std = vol.rolling(20).std().replace(0,
